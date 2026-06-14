@@ -87,6 +87,10 @@ Canvas mainCanvas;
                 GhostRaceManager.Instance.Initialize(dbReference);
                 GhostRaceManager.Instance.LoadRandomGhost(() =>
                     Debug.Log("[Ghost] Opponent loaded, ready to race!"));
+
+                // Multiplayer — initialize with same DB reference
+                EnsureMultiplayerManager();
+                MultiplayerManager.Instance.Initialize(dbReference);
             }
             else
             {
@@ -94,6 +98,14 @@ Canvas mainCanvas;
                 Debug.LogError("Firebase not ready: " + task.Result);
             }
         });
+    }
+
+    static void EnsureMultiplayerManager()
+    {
+        if (MultiplayerManager.Instance != null) return;
+        var go = new GameObject("MultiplayerManager");
+        go.AddComponent<MultiplayerManager>();
+        DontDestroyOnLoad(go);
     }
 
     static void EnsureGhostRaceManager()
@@ -505,6 +517,202 @@ startButton.onClick.AddListener(OnSubmitUsername);
     // Sound button stays visible throughout menu AND gameplay
     if (soundButtonObj != null)
         soundButtonObj.SetActive(true);
+
+    // ── 2-PLAYER BUTTON (below solo play button) ─────────────────────
+    Create2PlayerButton(usernamePanel);
+}
+
+void Create2PlayerButton(GameObject parent)
+{
+    GameObject btn2P = new GameObject("TwoPlayerButton");
+    btn2P.transform.SetParent(parent.transform, false);
+
+    Image img = btn2P.AddComponent<Image>();
+    img.color = new Color(0.1f, 0.4f, 0.15f, 0.95f); // green
+
+    Button comp = btn2P.AddComponent<Button>();
+    comp.onClick.AddListener(OnTwoPlayerPressed);
+
+    RectTransform rt = btn2P.GetComponent<RectTransform>();
+    rt.sizeDelta        = new Vector2(420, 110);
+    rt.anchoredPosition = new Vector2(0, -270); // below solo button
+
+    GameObject labelGO = new GameObject("Label");
+    labelGO.transform.SetParent(btn2P.transform, false);
+    TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
+    label.text      = "⚔ 2 PLAYER";
+    label.fontSize  = 42;
+    label.fontStyle = FontStyles.Bold;
+    label.color     = Color.white;
+    label.alignment = TextAlignmentOptions.Center;
+    RectTransform labelRT = label.GetComponent<RectTransform>();
+    labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
+    labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
+}
+
+// ── 2-Player Room Panel ──────────────────────────────────────────────
+
+private GameObject _mpPanel;
+private TextMeshProUGUI _mpCodeText;
+private TextMeshProUGUI _mpStatusText;
+private TMP_InputField  _mpJoinInput;
+
+void OnTwoPlayerPressed()
+{
+    // Must have username first
+    string username = PlayerPrefs.GetString("USERNAME", "").Trim();
+    if (string.IsNullOrEmpty(username)) { OnSubmitUsername(); return; }
+
+    ShowMPPanel();
+}
+
+void ShowMPPanel()
+{
+    if (_mpPanel != null) { _mpPanel.SetActive(true); return; }
+
+    Canvas canvas = mainCanvas;
+    _mpPanel = new GameObject("MPRoomPanel");
+    _mpPanel.transform.SetParent(canvas.transform, false);
+
+    // Dark background
+    Image bg = _mpPanel.AddComponent<Image>();
+    bg.color = new Color(0f, 0f, 0f, 0.88f);
+    RectTransform bgRT = _mpPanel.GetComponent<RectTransform>();
+    bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
+    bgRT.offsetMin = bgRT.offsetMax = Vector2.zero;
+
+    // Title
+    AddLabel(_mpPanel, "⚔ 2 PLAYER", new Vector2(0, 320), 56, Color.white);
+
+    // Status text
+    var statusGO = new GameObject("MPStatus");
+    statusGO.transform.SetParent(_mpPanel.transform, false);
+    _mpStatusText = statusGO.AddComponent<TextMeshProUGUI>();
+    _mpStatusText.text      = "Create a room or join with a code";
+    _mpStatusText.fontSize  = 32;
+    _mpStatusText.alignment = TextAlignmentOptions.Center;
+    _mpStatusText.color     = new Color(0.75f, 0.95f, 0.75f, 1f);
+    var stRT = _mpStatusText.GetComponent<RectTransform>();
+    stRT.anchorMin = new Vector2(0.1f, 0.5f); stRT.anchorMax = new Vector2(0.9f, 0.5f);
+    stRT.sizeDelta = new Vector2(0, 60); stRT.anchoredPosition = new Vector2(0, 180);
+
+    // Room code display (shown after creating)
+    var codeGO = new GameObject("MPCode");
+    codeGO.transform.SetParent(_mpPanel.transform, false);
+    _mpCodeText = codeGO.AddComponent<TextMeshProUGUI>();
+    _mpCodeText.text      = "";
+    _mpCodeText.fontSize  = 80;
+    _mpCodeText.fontStyle = FontStyles.Bold;
+    _mpCodeText.alignment = TextAlignmentOptions.Center;
+    _mpCodeText.color     = new Color(0.4f, 1f, 0.5f, 1f);
+    var codeRT = _mpCodeText.GetComponent<RectTransform>();
+    codeRT.anchorMin = new Vector2(0.1f, 0.5f); codeRT.anchorMax = new Vector2(0.9f, 0.5f);
+    codeRT.sizeDelta = new Vector2(0, 120); codeRT.anchoredPosition = new Vector2(0, 60);
+
+    // CREATE ROOM button
+    AddButton(_mpPanel, "CREATE ROOM", new Vector2(-110, -50), new Vector2(300, 100),
+        new Color(0.1f, 0.45f, 0.2f), () =>
+        {
+            string user = PlayerPrefs.GetString("USERNAME", "Player");
+            _mpStatusText.text = "Creating room...";
+            MultiplayerManager.Instance.CreateRoom(user,
+                code =>
+                {
+                    _mpCodeText.text   = code;
+                    _mpStatusText.text = "Share this code!\nWaiting for opponent...";
+                },
+                err => _mpStatusText.text = "Error: " + err);
+        });
+
+    // JOIN ROOM area
+    // Input
+    var joinInputGO = new GameObject("JoinInput");
+    joinInputGO.transform.SetParent(_mpPanel.transform, false);
+    joinInputGO.AddComponent<Image>().color = new Color(1f, 1f, 1f, 0.15f);
+    _mpJoinInput = joinInputGO.AddComponent<TMP_InputField>();
+    _mpJoinInput.characterLimit = 4;
+    var joinRT = joinInputGO.GetComponent<RectTransform>();
+    joinRT.anchorMin = new Vector2(0.5f, 0.5f); joinRT.anchorMax = new Vector2(0.5f, 0.5f);
+    joinRT.pivot = new Vector2(0.5f, 0.5f);
+    joinRT.sizeDelta = new Vector2(220, 80); joinRT.anchoredPosition = new Vector2(80, -170);
+
+    var joinTextGO = new GameObject("JoinText");
+    joinTextGO.transform.SetParent(joinInputGO.transform, false);
+    TextMeshProUGUI joinTxt = joinTextGO.AddComponent<TextMeshProUGUI>();
+    joinTxt.fontSize = 42; joinTxt.color = Color.white; joinTxt.alignment = TextAlignmentOptions.Center;
+    var jtRT = joinTxt.GetComponent<RectTransform>();
+    jtRT.anchorMin = Vector2.zero; jtRT.anchorMax = Vector2.one;
+    jtRT.offsetMin = jtRT.offsetMax = Vector2.zero;
+    _mpJoinInput.textComponent = joinTxt;
+
+    var phGO = new GameObject("Placeholder");
+    phGO.transform.SetParent(joinInputGO.transform, false);
+    TextMeshProUGUI ph = phGO.AddComponent<TextMeshProUGUI>();
+    ph.text = "CODE"; ph.fontSize = 36; ph.color = Color.gray; ph.alignment = TextAlignmentOptions.Center;
+    var phRT = ph.GetComponent<RectTransform>();
+    phRT.anchorMin = Vector2.zero; phRT.anchorMax = Vector2.one;
+    phRT.offsetMin = phRT.offsetMax = Vector2.zero;
+    _mpJoinInput.placeholder = ph;
+
+    // JOIN button
+    AddButton(_mpPanel, "JOIN", new Vector2(230, -170), new Vector2(160, 80),
+        new Color(0.15f, 0.3f, 0.55f), () =>
+        {
+            string code = _mpJoinInput.text.Trim().ToUpper();
+            if (code.Length != 4) { _mpStatusText.text = "Enter 4-letter code"; return; }
+            string user = PlayerPrefs.GetString("USERNAME", "Player");
+            _mpStatusText.text = "Joining...";
+            MultiplayerManager.Instance.JoinRoom(code, user,
+                () =>
+                {
+                    _mpStatusText.text = "Joined! Get ready...";
+                    _mpPanel.SetActive(false); // hide panel — countdown takes over
+                },
+                err => _mpStatusText.text = "Error: " + err);
+        });
+
+    // CANCEL button
+    AddButton(_mpPanel, "✕ CANCEL", new Vector2(0, -310), new Vector2(260, 80),
+        new Color(0.5f, 0.1f, 0.1f), () =>
+        {
+            MultiplayerManager.Instance?.AbortMultiplayer();
+            _mpPanel.SetActive(false);
+        });
+}
+
+// ── UI helpers ──────────────────────────────────────────────────────
+
+void AddLabel(GameObject parent, string text, Vector2 pos, float size, Color color)
+{
+    var go = new GameObject("Label_" + text);
+    go.transform.SetParent(parent.transform, false);
+    var tmp = go.AddComponent<TextMeshProUGUI>();
+    tmp.text = text; tmp.fontSize = size; tmp.color = color;
+    tmp.fontStyle = FontStyles.Bold; tmp.alignment = TextAlignmentOptions.Center;
+    var rt = tmp.GetComponent<RectTransform>();
+    rt.anchorMin = new Vector2(0.1f, 0.5f); rt.anchorMax = new Vector2(0.9f, 0.5f);
+    rt.sizeDelta = new Vector2(0, size * 1.5f); rt.anchoredPosition = pos;
+}
+
+void AddButton(GameObject parent, string label, Vector2 pos, Vector2 size, Color color, UnityEngine.Events.UnityAction onClick)
+{
+    var go = new GameObject("Btn_" + label);
+    go.transform.SetParent(parent.transform, false);
+    go.AddComponent<Image>().color = color;
+    go.AddComponent<Button>().onClick.AddListener(onClick);
+    var rt = go.GetComponent<RectTransform>();
+    rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+    rt.sizeDelta = size; rt.anchoredPosition = pos;
+
+    var txtGO = new GameObject("T");
+    txtGO.transform.SetParent(go.transform, false);
+    var tmp = txtGO.AddComponent<TextMeshProUGUI>();
+    tmp.text = label; tmp.fontSize = Mathf.Min(size.y * 0.45f, 38f);
+    tmp.fontStyle = FontStyles.Bold; tmp.color = Color.white;
+    tmp.alignment = TextAlignmentOptions.Center;
+    var trt = tmp.GetComponent<RectTransform>();
+    trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+    trt.offsetMin = trt.offsetMax = Vector2.zero;
 }
 
 public void OnSubmitUsername()

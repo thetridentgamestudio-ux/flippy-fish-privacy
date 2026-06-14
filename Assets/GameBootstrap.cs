@@ -898,6 +898,10 @@ public void TriggerGameOver()
     IsGameOver = true;
     CurrentState = GameState.GameOver;
 
+    // Multiplayer — notify before ghost race so result shows correctly
+    if (MultiplayerManager.Instance != null && MultiplayerManager.Instance.IsMultiplayerGame)
+        MultiplayerManager.Instance.OnLocalPlayerDied(Score);
+
     // Ghost Race — save this run to Firebase if it's a new personal best
     GhostRaceManager.Instance?.EndRun(Score, playerUsername);
 
@@ -2220,6 +2224,18 @@ public string GetUsername()
 {
     return playerUsername;
 }
+
+public Canvas GetMainCanvas() => mainCanvas;
+
+/// <summary>Called by MultiplayerManager after the countdown to start a synced round.</summary>
+public void StartMultiplayerRound()
+{
+    RestartGame();
+    // RestartGame sets WaitingForRevive; MP games start immediately (no tap needed)
+    CurrentState = GameState.Playing;
+    StartPipeSpawning();
+}
+
 public void CreateDeathEffect(Vector3 position)
 {
     // 💥 Impact flash
