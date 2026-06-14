@@ -46,6 +46,7 @@ Canvas mainCanvas;
 
     void Start()
     {
+        EnsureGhostRaceManager(); // create before Firebase resolves so StartRecording() always works
         CreateStartMenuUI();
         CreateLeaderboardUI();
         CreateRestartButton();

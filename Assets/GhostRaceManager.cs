@@ -93,11 +93,19 @@ public class GhostRaceManager : MonoBehaviour
     public void EndRun(int score, string username)
     {
         _isRecording = false;
-        if (_tapTimes.Count < 3) return; // ignore trivial runs
+        if (_tapTimes.Count < 3)
+        {
+            Debug.Log($"[Ghost] EndRun skipped: only {_tapTimes.Count} taps recorded (need >=3). Was StartRecording() called?");
+            return;
+        }
 
         int best = PlayerPrefs.GetInt("BestScore", 0);
-        if (score >= best && score > 0 && _db != null)
+        Debug.Log($"[Ghost] EndRun: score={score} best={score} taps={_tapTimes.Count} dbReady={_db != null}");
+
+        if (score > 0 && _db != null)
             SaveGhost(username, score, Time.realtimeSinceStartup - _runStartTime);
+        else if (_db == null)
+            Debug.LogWarning("[Ghost] EndRun: Firebase DB not initialized yet — ghost not saved.");
     }
 
     // ── Saving ─────────────────────────────────────────────
