@@ -274,13 +274,15 @@ public class MultiplayerManager : MonoBehaviour
         if (State != MPState.Playing) return;
         State = MPState.Done;
 
-        _myRef.UpdateChildrenAsync(new Dictionary<string, object>
-        {
-            { "alive", false },
-            { "score", score }
-        });
+        if (!_isBotMatch && _myRef != null)
+            _myRef.UpdateChildrenAsync(new Dictionary<string, object>
+            {
+                { "alive", false },
+                { "score", score }
+            });
 
         if (_syncCoroutine != null) StopCoroutine(_syncCoroutine);
+        if (_botCoroutine  != null) StopCoroutine(_botCoroutine);
         DestroyGhost();
         ShowResult(won: false, myScore: score, oppScore: _opponentScore);
     }
@@ -426,8 +428,9 @@ public class MultiplayerManager : MonoBehaviour
         // Remove result after 5 seconds (game over panel takes over)
         Destroy(go, 5f);
 
-        // Clean up room from Firebase after match ends
-        StartCoroutine(CleanupRoom(3f));
+        // Clean up Firebase room (skip for bot matches — no room was created)
+        if (!_isBotMatch) StartCoroutine(CleanupRoom(3f));
+        else              AbortMultiplayer();
 
         // Remove opp score badge
         if (_oppScoreBadge != null) Destroy(_oppScoreBadge.gameObject);
@@ -595,13 +598,126 @@ public class MultiplayerManager : MonoBehaviour
     IEnumerator QuickPlayTimeout(System.Action<string> onError)
     {
         yield return new WaitForSecondsRealtime(60f);
-        if (State == MPState.WaitingForGuest)
+        if (State != MPState.WaitingForGuest) yield break;
+
+        // Clean up matchmaking queue
+        _db.Child("matchmaking").Child("waiting").Child(_myMatchId).RemoveValueAsync();
+        if (_matchListener != null)
         {
-            _db.Child("matchmaking").Child("waiting").Child(_myMatchId).RemoveValueAsync();
-            if (_matchListener != null)
-                _db.Child("matchmaking").Child("matched").Child(_myMatchId).ValueChanged -= _matchListener;
-            State = MPState.Idle;
-            onError("No opponent found. Try again!");
+            _db.Child("matchmaking").Child("matched").Child(_myMatchId).ValueChanged -= _matchListener;
+            _matchListener = null;
+        }
+
+        // Start a bot match instead of erroring
+        StartBotMatch();
+    }
+
+    // ──────────────────────────────────────────────────────
+    // BOT OPPONENT — fires when no real player found in 60s
+    // ──────────────────────────────────────────────────────
+
+    private bool       _isBotMatch;
+    private Coroutine  _botCoroutine;
+
+    static readonly string[] BOT_NAMES = {
+        "BlowfishBot", "TunaBot", "NemoBot", "DoryBot", "MarlinBot"
+    };
+
+    void StartBotMatch()
+    {
+        _isBotMatch  = true;
+        _oppUsername = BOT_NAMES[Random.Range(0, BOT_NAMES.Length)];
+
+        // No Firebase room needed — bot is purely local
+        _mySlot  = "player";
+        _oppSlot = "bot";
+        IsHost   = true;
+
+        State = MPState.Countdown;
+
+        // Show "all players busy" message during countdown
+        ShowCountdownText("All players busy!\nPlaying vs " + _oppUsername);
+        StartCoroutine(BotCountdownThenPlay());
+    }
+
+    IEnumerator BotCountdownThenPlay()
+    {
+        yield return new WaitForSecondsRealtime(2f);
+        ShowCountdownText("3");
+        yield return new WaitForSecondsRealtime(1f);
+        ShowCountdownText("2");
+        yield return new WaitForSecondsRealtime(1f);
+        ShowCountdownText("1");
+        yield return new WaitForSecondsRealtime(1f);
+        ShowCountdownText("GO!");
+        yield return new WaitForSecondsRealtime(0.5f);
+        HideCountdown();
+
+        Random.InitState(_seed);
+        State = MPState.Playing;
+        IsMultiplayerGame = true;
+
+        GameBootstrap.Instance.StartMultiplayerRound();
+
+        Sprite playerSprite = GameBootstrap.Instance.player?.GetComponent<SpriteRenderer>()?.sprite;
+        float  playerScale  = GameBootstrap.Instance.player != null
+            ? GameBootstrap.Instance.player.transform.localScale.x : 1.4f;
+        CreateGhostFish(playerSprite, playerScale);
+        CreateOppScoreBadge();
+
+        // No real sync needed — bot drives itself locally
+        _botCoroutine = StartCoroutine(BotSimulation());
+    }
+
+    IEnumerator BotSimulation()
+    {
+        // Bot survives a random score between 8 and 28 then "dies"
+        int botDeathScore = Random.Range(8, 29);
+
+        float botY   = 0f;
+        float botVel = 0f;
+        const float GRAVITY    = -19.62f;
+        const float JUMP_FORCE = 10.5f;
+
+        // Tap interval: mimic a mediocre human — tap every 0.45–0.75s
+        float nextTapIn = Random.Range(0.3f, 0.6f);
+        float elapsed   = 0f;
+
+        while (State == MPState.Playing)
+        {
+            float dt = Time.deltaTime;
+            elapsed += dt;
+            nextTapIn -= dt;
+
+            // Tap
+            if (nextTapIn <= 0f)
+            {
+                botVel    = Mathf.Max(botVel, 0f) + JUMP_FORCE;
+                nextTapIn = Random.Range(0.42f, 0.72f);
+            }
+
+            botVel  += GRAVITY * dt;
+            botVel   = Mathf.Clamp(botVel, -14f, 14f);
+            botY    += botVel * dt;
+
+            // Clamp to playable area so bot never goes off screen
+            float halfScreen = Camera.main != null ? Camera.main.orthographicSize - 1f : 10f;
+            float groundTop  = GameBootstrap.Instance != null ? GameBootstrap.Instance.groundTop + 0.5f : -9f;
+            if (botY > halfScreen)  { botY = halfScreen;  botVel = -2f; }
+            if (botY < groundTop)   { botY = groundTop;   botVel = 0f;  }
+
+            _ghostTargetY  = botY;
+            _opponentScore = Mathf.Min(GameBootstrap.Instance?.Score ?? 0, botDeathScore);
+
+            // Bot dies when real player reaches its death score
+            if ((GameBootstrap.Instance?.Score ?? 0) >= botDeathScore)
+            {
+                _opponentAlive = false;
+                OnOpponentDied();
+                yield break;
+            }
+
+            yield return null;
         }
     }
 
@@ -620,11 +736,13 @@ public class MultiplayerManager : MonoBehaviour
         State = MPState.Idle;
         IsMultiplayerGame = false;
         _opponentAlive = true;
+        _isBotMatch    = false;
 
-        if (_syncCoroutine     != null) StopCoroutine(_syncCoroutine);
-        if (_quickPlayTimeout  != null) StopCoroutine(_quickPlayTimeout);
+        if (_syncCoroutine    != null) StopCoroutine(_syncCoroutine);
+        if (_quickPlayTimeout != null) StopCoroutine(_quickPlayTimeout);
+        if (_botCoroutine     != null) StopCoroutine(_botCoroutine);
 
-        if (_roomRef != null && _myRef != null)
+        if (!_isBotMatch && _roomRef != null && _myRef != null)
             _myRef.UpdateChildrenAsync(new Dictionary<string, object> { { "alive", false } });
 
         if (_oppListener != null && _oppRef != null)
