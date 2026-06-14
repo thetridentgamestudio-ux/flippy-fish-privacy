@@ -464,18 +464,18 @@ void SpawnPipe(float spawnX)
     // =====================================================
     // GAP CENTER LIMITS
     // =====================================================
-float bottomMargin = 1.2f;
+float bottomMargin = 1.0f;  // minimum stub of bottom pipe above ground
 
-// CUSTOM GAMEPLAY CEILING
-float gameplayCeiling = 7.0f; // adjusted for larger player
+// Ceiling = just below screen top so top pipe always has some stub
+float screenTop = Camera.main.orthographicSize;
+float gameplayCeiling = screenTop - 0.8f;
 
 float minGapCenter = groundTop + currentGap / 2f + bottomMargin;
-
 float maxGapCenter = gameplayCeiling - currentGap / 2f;
 
-// Cap bottom pipe so it never exceeds 5 units — always passable
-float bottomPipeCap = groundTop + 5.0f + currentGap / 2f;
-if (maxGapCenter > bottomPipeCap) maxGapCenter = bottomPipeCap;
+// Safety: if range collapsed (very large gap), centre it
+if (maxGapCenter < minGapCenter)
+    maxGapCenter = minGapCenter = (groundTop + gameplayCeiling) * 0.5f;
 
     float gapCenter;
 
