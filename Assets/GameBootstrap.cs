@@ -743,19 +743,19 @@ if (maxGapCenter > bottomPipeCap) maxGapCenter = bottomPipeCap;
     // DEBUG
     // =====================================================
 
-    float topPipeBottomEdge =
-        topPipe.transform.position.y -
-        (
-            topPipe.GetComponent<SpriteRenderer>()
-            .bounds.size.y / 2f
-        );
+    // Guard: topPipe / bottomPipe are only assigned when their sprite arrays are
+    // non-empty. Accessing them unconditionally was crash point #2 — a
+    // NullReferenceException here would also break the SpawnPipeRepeated Invoke chain.
+    if (topPipe != null && bottomPipe != null)
+    {
+        float topPipeBottomEdge =
+            topPipe.transform.position.y -
+            topPipe.GetComponent<SpriteRenderer>().bounds.size.y / 2f;
 
-    float bottomPipeTopEdge =
-        bottomPipe.transform.position.y +
-        (
-            bottomPipe.GetComponent<SpriteRenderer>()
-            .bounds.size.y / 2f
-        );
+        float bottomPipeTopEdge =
+            bottomPipe.transform.position.y +
+            bottomPipe.GetComponent<SpriteRenderer>().bounds.size.y / 2f;
+    }
 }
 GameObject CreatePipe(string name, Vector3 pos, Sprite sprite, bool flipY)
 

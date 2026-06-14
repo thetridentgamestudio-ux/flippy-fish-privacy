@@ -36,9 +36,12 @@ public class PowerUpSpawner : MonoBehaviour
         bobScript.amplitude = 0.5f;
         bobScript.frequency = 2f;
 
-        // Tag for detection
-        powerUpGO.tag = "PowerUp";
-        powerUpGO.layer = LayerMask.NameToLayer("Default");
+        // PowerUpPickup handles collection via component check — no Unity tag needed.
+        // DO NOT use tag = "PowerUp" here: if the tag is not defined in Project Settings
+        // → Tags & Layers, Unity throws UnityException which propagates up through
+        // SpawnPipe → SpawnPipeRepeated, silently breaking the pipe-spawn Invoke chain.
+        var pickup = powerUpGO.AddComponent<PowerUpPickup>();
+        pickup.powerUpType = type;
 
         // Destroy after 30 seconds off-screen
         Destroy(powerUpGO, 30f);
@@ -67,6 +70,27 @@ public class PowerUpSpawner : MonoBehaviour
         tex.SetPixels(pixels);
         tex.Apply();
         return Sprite.Create(tex, new Rect(0, 0, 32, 32), new Vector2(0.5f, 0.5f), 100);
+    }
+}
+
+/// <summary>
+/// Handles player collision with a power-up.
+/// Uses GetComponent instead of CompareTag so no Unity tag registration is needed.
+/// </summary>
+public class PowerUpPickup : MonoBehaviour
+{
+    public PowerUpManager.PowerUp.PowerUpType powerUpType;
+
+    void OnTriggerEnter2D(Collider2D other)
+    {
+        // Only the player triggers collection
+        if (other.GetComponent<PlayerController>() == null) return;
+        // Only collect during active gameplay
+        if (GameBootstrap.Instance == null ||
+            GameBootstrap.Instance.CurrentState != GameBootstrap.GameState.Playing) return;
+
+        PowerUpManager.ActivatePowerUp(powerUpType);
+        Destroy(gameObject);
     }
 }
 
