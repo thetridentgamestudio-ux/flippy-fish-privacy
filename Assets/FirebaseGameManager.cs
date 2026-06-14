@@ -71,7 +71,7 @@ Canvas mainCanvas;
             ShowUsernamePanel(); // new player: show input + Play button
         }
     }
- void InitializeFirebase()
+    void InitializeFirebase()
     {
         FirebaseApp.CheckAndFixDependenciesAsync().ContinueWithOnMainThread(task =>
         {
@@ -80,6 +80,12 @@ Canvas mainCanvas;
                 FirebaseApp app = FirebaseApp.DefaultInstance;
                 dbReference = FirebaseDatabase.GetInstance(app, databaseURL).RootReference;
                 isFirebaseReady = true;
+
+                // Ghost Race — initialize with live DB reference and fetch an opponent
+                EnsureGhostRaceManager();
+                GhostRaceManager.Instance.Initialize(dbReference);
+                GhostRaceManager.Instance.LoadRandomGhost(() =>
+                    Debug.Log("[Ghost] Opponent loaded, ready to race!"));
             }
             else
             {
@@ -87,6 +93,14 @@ Canvas mainCanvas;
                 Debug.LogError("Firebase not ready: " + task.Result);
             }
         });
+    }
+
+    static void EnsureGhostRaceManager()
+    {
+        if (GhostRaceManager.Instance != null) return;
+        var go = new GameObject("GhostRaceManager");
+        go.AddComponent<GhostRaceManager>();
+        DontDestroyOnLoad(go);
     }
 
     #region Username Panel

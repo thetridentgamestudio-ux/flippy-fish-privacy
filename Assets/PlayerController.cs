@@ -121,6 +121,7 @@ void Update()
             if(rb.gravityScale < 1f) rb.gravityScale = 1f;
             rb.linearVelocity = Vector2.zero;
             rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+            GhostRaceManager.Instance?.RecordTap(transform.position.y);
         }
         return; // don't process anything else until first tap
     }
@@ -150,6 +151,7 @@ void Update()
             flapForceToApply *= rapidFlapMultiplier;
 
         SwimUp(flapForceToApply);
+        GhostRaceManager.Instance?.RecordTap(transform.position.y);
         PlayFlapSound(isRapid);
 
        if (bubbleSpawner != null && GameBootstrap.Instance != null && !GameBootstrap.Instance.IsGameOver)

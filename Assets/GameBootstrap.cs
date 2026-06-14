@@ -914,6 +914,9 @@ public void TriggerGameOver()
     IsGameOver = true;
     CurrentState = GameState.GameOver;
 
+    // Ghost Race — save this run to Firebase if it's a new personal best
+    GhostRaceManager.Instance?.EndRun(Score, playerUsername);
+
     float sessionDuration = Time.realtimeSinceStartup - _sessionStartTime;
     AnalyticsEvents.LogGameOver(Score, SkinManager.GetCoins(), sessionDuration);
 
@@ -1262,6 +1265,9 @@ public void RestartGame()
 {
     CancelInvoke(nameof(SpawnPipeRepeated));
     FirebaseGameManager manager = FindObjectOfType<FirebaseGameManager>();
+
+    // Stop any active ghost — new ghost will start on first tap of new run
+    GhostRaceManager.Instance?.StopGhostPlayback();
 
     // Hide skins + quest buttons during gameplay
     if (manager != null) manager.SetSkinsButtonVisible(false);
@@ -1672,6 +1678,15 @@ void CreateAllUI()
         {
             tapHintText.gameObject.SetActive(false);
             tapHintText.text = "TAP TO START";
+        }
+
+        // Ghost Race — start recording this run and begin replaying the loaded ghost
+        if (GhostRaceManager.Instance != null)
+        {
+            GhostRaceManager.Instance.StartRecording();
+            Sprite skinSprite = player != null
+                ? player.GetComponent<SpriteRenderer>()?.sprite : null;
+            GhostRaceManager.Instance.BeginGhostPlayback(skinSprite, mainCanvas);
         }
     }
 
