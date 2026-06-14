@@ -7,17 +7,17 @@ public class BackgroundObjectSpawner : MonoBehaviour
     // Ground objects — spawn near ground
     private static readonly string[] GROUND_SPRITES = new string[]
     {
-        "Seaweed_1",
-        "Seaweed_2",
+        "Seaweed_12",
+        "Seaweed_21",
         "Stone_1",
         "Stone_2",
-        "Stone_3",
-        "Anchor",
-        "Steering-wheel",
+        "Stone_31",
+        "Anchor1",
+        "Steering-wheel1",
         "Bubble_1",
         "Bubble_2",
         "Bubble_3",
-        "chest_closed"
+        "chest_closed1"
     };
 
     // Floating sprite prefixes — loads all numbered variants automatically

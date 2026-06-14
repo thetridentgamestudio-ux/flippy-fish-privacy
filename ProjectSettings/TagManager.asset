@@ -6,6 +6,9 @@ TagManager:
   tags:
   - Obstacle
   - Ground
+  - Coin
+  - PowerUp
+  - Pipe
   layers:
   - Default
   - TransparentFX
@@ -40,7 +43,7 @@ TagManager:
   - 
   - 
   m_SortingLayers:
-  - name: BackgroundDeep
+  - name: BackgroundDeepblue
     uniqueID: 4050883129
     locked: 0
   - name: BackgroundMid

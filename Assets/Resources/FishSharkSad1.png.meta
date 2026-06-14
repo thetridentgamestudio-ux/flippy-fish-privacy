@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: bbe1fe21d7c1749ac9c8f27eaf0fce44
+guid: a0f2cd110265d4527acbecc3acbcda57
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -6497974143940400319
-    second: edited-photo (42)_0
+      213: -466102535588177814
+    second: FishSharkSad_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -48,7 +48,7 @@ TextureImporter:
   compressionQuality: 50
   spriteMode: 2
   spriteExtrude: 1
-  spriteMeshType: 0
+  spriteMeshType: 1
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
   spritePixelsToUnits: 100
@@ -113,13 +113,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: edited-photo (42)_0
+      name: FishSharkSad_0
       rect:
         serializedVersion: 2
-        x: 38
-        y: 80
-        width: 910
-        height: 871
+        x: 54
+        y: 0
+        width: 1061
+        height: 880
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -128,8 +128,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 14b62ce91fe82d5a0800000000000000
-      internalID: -6497974143940400319
+      spriteID: a689b51a6321889f0800000000000000
+      internalID: -466102535588177814
       vertices: []
       indices: 
       edges: []
@@ -148,7 +148,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      edited-photo (42)_0: -6497974143940400319
+      FishSharkSad_0: -466102535588177814
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
