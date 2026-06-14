@@ -434,6 +434,184 @@ public class MultiplayerManager : MonoBehaviour
     }
 
     // ──────────────────────────────────────────────────────
+    // QUICKPLAY — random matchmaking, no code needed
+    // ──────────────────────────────────────────────────────
+
+    // Firebase structure:
+    //   matchmaking/waiting/<myId> = { username, timestamp, seed }
+    // First player sits there. Second player arrives, claims it,
+    // creates a room with the first player's seed, both join.
+
+    private string _myMatchId;
+    private EventHandler<ValueChangedEventArgs> _matchListener;
+    private Coroutine _quickPlayTimeout;
+
+    public void QuickPlay(string username, System.Action<string> onStatus, System.Action<string> onError)
+    {
+        if (_db == null) { onError("Firebase not ready"); return; }
+        if (State != MPState.Idle) { onError("Already in a match"); return; }
+
+        State = MPState.Joining;
+        _myMatchId = SafeId(username);
+
+        // Check if anyone is already waiting
+        _db.Child("matchmaking").Child("waiting")
+            .OrderByChild("timestamp").LimitToFirst(1)
+            .GetValueAsync().ContinueWithOnMainThread(t =>
+        {
+            if (!t.IsCompletedSuccessfully) { onError("Matchmaking error"); State = MPState.Idle; return; }
+
+            DataSnapshot waiting = t.Result;
+            bool foundOpponent = false;
+
+            foreach (var child in waiting.Children)
+            {
+                // Don't match with yourself
+                if (child.Key == _myMatchId) continue;
+
+                string oppUsername = child.Child("username").Value?.ToString() ?? "Player";
+                int    sharedSeed  = int.Parse(child.Child("seed").Value?.ToString() ?? "12345");
+                string oppId       = child.Key;
+
+                foundOpponent = true;
+
+                // Claim the slot — remove opponent from waiting, create room
+                _db.Child("matchmaking").Child("waiting").Child(oppId).RemoveValueAsync()
+                    .ContinueWithOnMainThread(rem =>
+                {
+                    if (!rem.IsCompletedSuccessfully)
+                    {
+                        // Someone else grabbed them first — go to waiting instead
+                        JoinWaitingQueue(username, onStatus, onError);
+                        return;
+                    }
+
+                    // We are the "guest", opponent is "host"
+                    IsHost       = false;
+                    _mySlot      = "guest";
+                    _oppSlot     = "host";
+                    _seed        = sharedSeed;
+                    _oppUsername = oppUsername;
+                    RoomCode     = "QP_" + oppId.Substring(0, Mathf.Min(4, oppId.Length));
+
+                    var data = new Dictionary<string, object>
+                    {
+                        { "hostUsername",  oppUsername },
+                        { "guestUsername", username },
+                        { "seed",          _seed },
+                        { "state",         "countdown" },
+                        { "host",  new Dictionary<string,object>{ {"y",0f},{"score",0},{"alive",true} } },
+                        { "guest", new Dictionary<string,object>{ {"y",0f},{"score",0},{"alive",true} } }
+                    };
+
+                    _db.Child("rooms").Child(RoomCode).SetValueAsync(data).ContinueWithOnMainThread(cr =>
+                    {
+                        if (!cr.IsCompletedSuccessfully) { onError("Room create failed"); State = MPState.Idle; return; }
+
+                        _roomRef = _db.Child("rooms").Child(RoomCode);
+                        _myRef   = _roomRef.Child(_mySlot);
+                        _oppRef  = _roomRef.Child(_oppSlot);
+
+                        // Signal the waiting player via a special node they are listening to
+                        _db.Child("matchmaking").Child("matched").Child(oppId).SetValueAsync(RoomCode);
+
+                        State = MPState.Countdown;
+                        onStatus("Opponent found! Starting...");
+                        ListenForOpponent();
+                        StartCoroutine(CountdownThenPlay());
+                    });
+                });
+                break;
+            }
+
+            if (!foundOpponent)
+                JoinWaitingQueue(username, onStatus, onError);
+        });
+    }
+
+    void JoinWaitingQueue(string username, System.Action<string> onStatus, System.Action<string> onError)
+    {
+        _seed = Random.Range(10000, 99999);
+
+        var entry = new Dictionary<string, object>
+        {
+            { "username",  username },
+            { "timestamp", System.DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
+            { "seed",      _seed }
+        };
+
+        _db.Child("matchmaking").Child("waiting").Child(_myMatchId).SetValueAsync(entry)
+            .ContinueWithOnMainThread(t =>
+        {
+            if (!t.IsCompletedSuccessfully) { onError("Queue failed"); State = MPState.Idle; return; }
+
+            State = MPState.WaitingForGuest;
+            onStatus("Looking for opponent...");
+
+            // Listen for someone to match us — they write our room code to matched/<myId>
+            _matchListener = (_, args) =>
+            {
+                if (args.DatabaseError != null || !args.Snapshot.Exists) return;
+
+                string roomCode = args.Snapshot.Value?.ToString();
+                if (string.IsNullOrEmpty(roomCode)) return;
+
+                // Clean up listeners and waiting entry
+                _db.Child("matchmaking").Child("matched").Child(_myMatchId).ValueChanged -= _matchListener;
+                _db.Child("matchmaking").Child("waiting").Child(_myMatchId).RemoveValueAsync();
+                _db.Child("matchmaking").Child("matched").Child(_myMatchId).RemoveValueAsync();
+
+                // We are the "host" slot in the room the guest created
+                IsHost   = true;
+                _mySlot  = "host";
+                _oppSlot = "guest";
+                RoomCode = roomCode;
+
+                _roomRef = _db.Child("rooms").Child(RoomCode);
+                _myRef   = _roomRef.Child(_mySlot);
+                _oppRef  = _roomRef.Child(_oppSlot);
+
+                // Read guest username from room
+                _roomRef.GetValueAsync().ContinueWithOnMainThread(r =>
+                {
+                    if (r.IsCompletedSuccessfully)
+                        _oppUsername = r.Result.Child("guestUsername").Value?.ToString() ?? "Player";
+
+                    State = MPState.Countdown;
+                    onStatus("Opponent found! Starting...");
+                    ListenForOpponent();
+                    StartCoroutine(CountdownThenPlay());
+                });
+            };
+
+            _db.Child("matchmaking").Child("matched").Child(_myMatchId).ValueChanged += _matchListener;
+
+            // Timeout after 60s if no one joins
+            if (_quickPlayTimeout != null) StopCoroutine(_quickPlayTimeout);
+            _quickPlayTimeout = StartCoroutine(QuickPlayTimeout(onError));
+        });
+    }
+
+    IEnumerator QuickPlayTimeout(System.Action<string> onError)
+    {
+        yield return new WaitForSecondsRealtime(60f);
+        if (State == MPState.WaitingForGuest)
+        {
+            _db.Child("matchmaking").Child("waiting").Child(_myMatchId).RemoveValueAsync();
+            if (_matchListener != null)
+                _db.Child("matchmaking").Child("matched").Child(_myMatchId).ValueChanged -= _matchListener;
+            State = MPState.Idle;
+            onError("No opponent found. Try again!");
+        }
+    }
+
+    static string SafeId(string username)
+    {
+        string clean = System.Text.RegularExpressions.Regex.Replace(username ?? "anon", @"[.$#\[\]/\s]", "_");
+        return clean + "_" + System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString().Substring(8);
+    }
+
+    // ──────────────────────────────────────────────────────
     // CLEANUP
     // ──────────────────────────────────────────────────────
 
@@ -441,22 +619,31 @@ public class MultiplayerManager : MonoBehaviour
     {
         State = MPState.Idle;
         IsMultiplayerGame = false;
-        if (_syncCoroutine != null) StopCoroutine(_syncCoroutine);
+        _opponentAlive = true;
+
+        if (_syncCoroutine     != null) StopCoroutine(_syncCoroutine);
+        if (_quickPlayTimeout  != null) StopCoroutine(_quickPlayTimeout);
 
         if (_roomRef != null && _myRef != null)
             _myRef.UpdateChildrenAsync(new Dictionary<string, object> { { "alive", false } });
 
         if (_oppListener != null && _oppRef != null)
             _oppRef.ValueChanged -= _oppListener;
-
         if (_roomStateListener != null && _roomRef != null)
             _roomRef.ValueChanged -= _roomStateListener;
+        if (_matchListener != null && _db != null && _myMatchId != null)
+        {
+            _db.Child("matchmaking").Child("matched").Child(_myMatchId).ValueChanged -= _matchListener;
+            _db.Child("matchmaking").Child("waiting").Child(_myMatchId).RemoveValueAsync();
+        }
 
         DestroyGhost();
         if (_oppScoreBadge != null) Destroy(_oppScoreBadge.gameObject);
         if (_countdownText  != null) Destroy(_countdownText.gameObject);
-        _oppListener      = null;
+        _oppListener       = null;
         _roomStateListener = null;
+        _matchListener     = null;
+        _myMatchId         = null;
     }
 
     IEnumerator CleanupRoom(float delay)

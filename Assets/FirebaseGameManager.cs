@@ -743,11 +743,33 @@ void ShowMPPanel()
     // Title
     AddLabel(_mpPanel, "⚔ 2 PLAYER", new Vector2(0, 320), 56, Color.white);
 
+    // FIND OPPONENT (QuickPlay) — big prominent button at top
+    AddButton(_mpPanel, "🔍 FIND OPPONENT", new Vector2(0, 200), new Vector2(500, 120),
+        new Color(0.55f, 0.15f, 0.05f), () =>
+        {
+            string user = PlayerPrefs.GetString("USERNAME", "Player");
+            _mpStatusText.text = "Searching for opponent...";
+            _mpCodeText.text   = "";
+            MultiplayerManager.Instance.QuickPlay(user,
+                status => _mpStatusText.text = status,
+                err =>
+                {
+                    _mpStatusText.text = err;
+                    // Re-show panel after error
+                    if (_mpPanel != null) _mpPanel.SetActive(true);
+                });
+            // Hide panel while searching — countdown overlay takes over when found
+            _mpPanel.SetActive(false);
+        });
+
+    // Divider label
+    AddLabel(_mpPanel, "── or play with a friend ──", new Vector2(0, 90), 26, new Color(0.6f, 0.6f, 0.6f));
+
     // Status text
     var statusGO = new GameObject("MPStatus");
     statusGO.transform.SetParent(_mpPanel.transform, false);
     _mpStatusText = statusGO.AddComponent<TextMeshProUGUI>();
-    _mpStatusText.text      = "Create a room or join with a code";
+    _mpStatusText.text      = "";
     _mpStatusText.fontSize  = 32;
     _mpStatusText.alignment = TextAlignmentOptions.Center;
     _mpStatusText.color     = new Color(0.75f, 0.95f, 0.75f, 1f);

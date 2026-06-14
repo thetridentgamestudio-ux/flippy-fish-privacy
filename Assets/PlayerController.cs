@@ -195,7 +195,24 @@ void Update()
 {
     rb.linearVelocity = new Vector2(0, Mathf.Max(rb.linearVelocity.y, 0f)); // cancel downward velocity
     float difficultyMultiplier = GameBootstrap.Instance != null ? GameBootstrap.Instance.GetDifficultyMultiplier() : 0f;
-    rb.AddForce(Vector2.up * (force + difficultyMultiplier * 0.5f), ForceMode2D.Impulse);
+    rb.AddForce(Vector2.up * (force * _speedBoostMultiplier + difficultyMultiplier * 0.5f), ForceMode2D.Impulse);
+}
+
+private float _speedBoostMultiplier = 1f;
+private Coroutine _speedBoostCoroutine;
+
+public void ApplySpeedBoost(float duration)
+{
+    if (_speedBoostCoroutine != null) StopCoroutine(_speedBoostCoroutine);
+    _speedBoostCoroutine = StartCoroutine(SpeedBoostCoroutine(duration));
+}
+
+IEnumerator SpeedBoostCoroutine(float duration)
+{
+    _speedBoostMultiplier = 1.55f; // 55% stronger jump — fish lunges visibly faster
+    yield return new WaitForSeconds(duration);
+    _speedBoostMultiplier = 1f;
+    _speedBoostCoroutine  = null;
 }
 
 //   void CreateFin()

@@ -14,7 +14,7 @@ public class PowerUpManager : MonoBehaviour
     [System.Serializable]
     public class PowerUp
     {
-        public enum PowerUpType { Shield, SlowTime, CoinMagnet, DoubleJump }
+        public enum PowerUpType { Shield, SlowTime, CoinMagnet, DoubleJump, SpeedBoost }
         public PowerUpType type;
         public string name;
         public float duration; // how long effect lasts
@@ -102,6 +102,16 @@ public class PowerUpManager : MonoBehaviour
             new Color(1f, 0.2f, 0.6f), // magenta
             4 // rare
         );
+
+        // SpeedBoost: bigger jump force for 6 seconds — fish lunges faster through gaps
+        powerUpDefs[PowerUp.PowerUpType.SpeedBoost] = new PowerUp(
+            PowerUp.PowerUpType.SpeedBoost,
+            "Speed Boost",
+            6f,
+            "Turbo jump for 6s",
+            new Color(1f, 0.85f, 0f), // bright yellow
+            5 // medium
+        );
     }
 
     public static PowerUp.PowerUpType TrySpawnPowerUp()
@@ -160,6 +170,12 @@ public class PowerUpManager : MonoBehaviour
 
             case PowerUp.PowerUpType.CoinMagnet:
                 // Passive during duration — handled in coin collection
+                break;
+
+            case PowerUp.PowerUpType.SpeedBoost:
+                // Tell PlayerController to boost jump force
+                var pc = Object.FindFirstObjectByType<PlayerController>();
+                if (pc != null) pc.ApplySpeedBoost(def.duration);
                 break;
         }
 
