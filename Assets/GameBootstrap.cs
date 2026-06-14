@@ -993,8 +993,9 @@ public void TriggerGameOver()
         if (reviveButton != null)  reviveButton.SetActive(canRevive);
         if (restartButton != null) restartButton.SetActive(true);
 
-        // Show skins button on game over screen
+        // Show skins + quest buttons on game over screen
         if (firebase != null) firebase.SetSkinsButtonVisible(true);
+        if (questButtonGO != null) questButtonGO.SetActive(true);
         
         // Show next skin unlock hint
         if (gameOverPanel != null)
@@ -1092,6 +1093,7 @@ public void StartGame()
         bgMusicSource.Play();
     FirebaseGameManager fbm = FindObjectOfType<FirebaseGameManager>();
     if (fbm != null) fbm.SetSkinsButtonVisible(false);
+    if (questButtonGO != null) questButtonGO.SetActive(false);
 
     // Show TAP TO START hint
     if (tapHintText != null)
@@ -1261,8 +1263,9 @@ public void RestartGame()
     CancelInvoke(nameof(SpawnPipeRepeated));
     FirebaseGameManager manager = FindObjectOfType<FirebaseGameManager>();
 
-    // Hide skins button during gameplay
+    // Hide skins + quest buttons during gameplay
     if (manager != null) manager.SetSkinsButtonVisible(false);
+    if (questButtonGO != null) questButtonGO.SetActive(false);
 
 if (manager != null)
 
@@ -3018,26 +3021,29 @@ void CreateDailyQuestsButton()
     Image btnImage = questButtonGO.AddComponent<Image>();
     
     // ===== BUTTON STYLING =====
-    // Professional blue color with slight transparency
-    btnImage.color = new Color(0.2f, 0.55f, 0.9f, 0.85f);
-    
+    // Teal/green so it reads differently from the blue skins button
+    btnImage.color = new Color(0.1f, 0.62f, 0.45f, 0.92f);
+
     // ===== BUTTON POSITIONING =====
-    // TOP-LEFT corner (below score, visible and accessible)
+    // Bottom-right corner — mirrors skins button (bottom-left), clear of score UI
+    float btnW    = Screen.width  * 0.28f;
+    float btnH    = Screen.height * 0.07f;
+    float margin  = Screen.width  * 0.03f;
     RectTransform btnRect = questButtonGO.GetComponent<RectTransform>();
-    btnRect.anchorMin = new Vector2(0, 1);       // Top-left anchor
-    btnRect.anchorMax = new Vector2(0, 1);       // Top-left anchor
-    btnRect.pivot = new Vector2(0, 1);           // Top-left pivot
-    btnRect.anchoredPosition = new Vector2(130, -60);  // 130px from left, 60px from top
-    btnRect.sizeDelta = new Vector2(120, 60);   // Button size
-    
+    btnRect.anchorMin        = new Vector2(1f, 0f);
+    btnRect.anchorMax        = new Vector2(1f, 0f);
+    btnRect.pivot            = new Vector2(1f, 0f);
+    btnRect.anchoredPosition = new Vector2(-margin, margin);
+    btnRect.sizeDelta        = new Vector2(btnW, btnH);
+
     // ===== ADD TEXT TO BUTTON =====
     GameObject textGO = new GameObject("Text");
     textGO.transform.SetParent(questButtonGO.transform, false);
     TextMeshProUGUI btnText = textGO.AddComponent<TextMeshProUGUI>();
-    
+
     // ===== TEXT STYLING =====
-    btnText.text = "📋 QUESTS";
-    btnText.fontSize = 18;
+    btnText.text = "QUESTS";
+    btnText.fontSize = Screen.height * 0.022f;
     btnText.fontStyle = FontStyles.Bold;
     btnText.alignment = TextAlignmentOptions.Center;
     btnText.color = Color.white;
