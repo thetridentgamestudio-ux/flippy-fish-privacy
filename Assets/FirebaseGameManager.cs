@@ -44,30 +44,33 @@ Canvas mainCanvas;
     [Tooltip("Enter your Firebase Realtime Database URL here")]
     public string databaseURL = "https://flappymobilegame-default-rtdb.firebaseio.com/";
 
-  void Start()
-{
+    void Start()
+    {
+        CreateStartMenuUI();
+        CreateLeaderboardUI();
+        CreateRestartButton();
+        InitializeFirebase();
 
-    CreateStartMenuUI();
-CreateLeaderboardUI();
- CreateRestartButton();
-InitializeFirebase();
-int soundPref = PlayerPrefs.GetInt("SOUND", 1);
-isSoundOn = soundPref == 1;
-AudioListener.volume = isSoundOn ? 1f : 0f;
+        int soundPref = PlayerPrefs.GetInt("SOUND", 1);
+        isSoundOn = soundPref == 1;
+        AudioListener.volume = isSoundOn ? 1f : 0f;
 
-if (PlayerPrefs.HasKey("USERNAME"))
-{
-    playerUsername = PlayerPrefs.GetString("USERNAME");
-}
-
-// Always hide the username panel on launch — name collected lazily after first game-over
-if (usernamePanel != null) usernamePanel.SetActive(false);
-
-// Auto-start immediately so players reach gameplay with zero friction
-if (GameBootstrap.Instance != null)
-    GameBootstrap.Instance.StartGame();
-CreateRestartButton();
-}
+        if (PlayerPrefs.HasKey("USERNAME"))
+        {
+            playerUsername = PlayerPrefs.GetString("USERNAME");
+            // Returning player: hide input field, make panel transparent, show only Play button
+            if (usernameInput != null)
+                usernameInput.gameObject.SetActive(false);
+            UnityEngine.UI.Image panelImg = usernamePanel != null
+                ? usernamePanel.GetComponent<UnityEngine.UI.Image>() : null;
+            if (panelImg != null) panelImg.color = new Color(0, 0, 0, 0f);
+            if (usernamePanel != null) usernamePanel.SetActive(true);
+        }
+        else
+        {
+            ShowUsernamePanel(); // new player: show input + Play button
+        }
+    }
  void InitializeFirebase()
     {
         FirebaseApp.CheckAndFixDependenciesAsync().ContinueWithOnMainThread(task =>
@@ -503,13 +506,12 @@ public void OnSubmitUsername()
         // ── Validation ────────────────────────────────────────────
         if (string.IsNullOrEmpty(username))
         {
-            placeholder.text = "Enter a username!";
-            return;
+            // Guest play — assign random name, don't block
+            username = "Fish" + UnityEngine.Random.Range(1000, 9999);
         }
-
-        if (username.Length < 3)
+        else if (username.Length < 3)
         {
-            placeholder.text = "Min 3 characters!";
+            placeholder.text = "Min 3 chars (or leave blank)";
             usernameInput.text = "";
             return;
         }
