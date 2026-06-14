@@ -467,8 +467,7 @@ void SpawnPipe(float spawnX)
 float bottomMargin = 1.0f;  // minimum stub of bottom pipe above ground
 
 // Ceiling = just below screen top so top pipe always has some stub
-float screenTop = Camera.main.orthographicSize;
-float gameplayCeiling = screenTop - 0.8f;
+float gameplayCeiling = Camera.main.orthographicSize - 0.8f;
 
 float minGapCenter = groundTop + currentGap / 2f + bottomMargin;
 float maxGapCenter = gameplayCeiling - currentGap / 2f;
