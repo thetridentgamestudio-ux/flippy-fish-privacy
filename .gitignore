@@ -1,0 +1,37 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+.utmp/
+
+# Unity crash dumps
+mono_crash.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.slnx
+*.csproj.lscache
+
+# Build artifacts
+*.apk
+*.aab
+*.ipa
+
+# Large Firebase native binaries (exceed GitHub 100MB limit — restored via Firebase Unity SDK import)
+Assets/Firebase/Plugins/x86_64/*.bundle
+Assets/Firebase/Plugins/x86_64/*.so
+
+# Asset meta files for ignored folders
+[Ll]ibrary.meta
+[Tt]emp.meta

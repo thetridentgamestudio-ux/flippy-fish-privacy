@@ -1,0 +1,598 @@
+fileFormatVersion: 2
+guid: 8ed48ac82b29542949e8c632a8db26b1
+TextureImporter:
+  internalIDToNameTable:
+  - first:
+      213: 8990684674637495981
+    second: OverlapBG_0
+  - first:
+      213: 7375997176819964985
+    second: OverlapBG_1
+  - first:
+      213: -8841021109900537121
+    second: OverlapBG_2
+  - first:
+      213: -1875082474101245067
+    second: OverlapBG_3
+  - first:
+      213: -4089982008594255502
+    second: OverlapBG_4
+  - first:
+      213: -3269361480124258313
+    second: OverlapBG_5
+  - first:
+      213: -328157196666606117
+    second: OverlapBG_6
+  - first:
+      213: 1812871609477076180
+    second: OverlapBG_7
+  - first:
+      213: -3730153372350750299
+    second: OverlapBG_8
+  - first:
+      213: 392594340430978514
+    second: OverlapBG_9
+  - first:
+      213: -5105466197730495328
+    second: OverlapBG_10
+  - first:
+      213: -669747867207509455
+    second: OverlapBG_11
+  - first:
+      213: 3982688144330015907
+    second: OverlapBG_12
+  - first:
+      213: 6367980869498481033
+    second: OverlapBG_13
+  - first:
+      213: -934936868623354112
+    second: OverlapBG_14
+  - first:
+      213: 463754163160336489
+    second: OverlapBG_15
+  - first:
+      213: -6672165773364565739
+    second: OverlapBG_16
+  - first:
+      213: 6673398768847810122
+    second: OverlapBG_17
+  externalObjects: {}
+  serializedVersion: 13
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 0
+    sRGBTexture: 1
+    linearTexture: 0
+    fadeOut: 0
+    borderMipMap: 0
+    mipMapsPreserveCoverage: 0
+    alphaTestReferenceValue: 0.5
+    mipMapFadeDistanceStart: 1
+    mipMapFadeDistanceEnd: 3
+  bumpmap:
+    convertToNormalMap: 0
+    externalNormalMap: 0
+    heightScale: 0.25
+    normalMapFilter: 0
+    flipGreenChannel: 0
+  isReadable: 0
+  streamingMipmaps: 0
+  streamingMipmapsPriority: 0
+  vTOnly: 0
+  ignoreMipmapLimit: 0
+  grayScaleToAlpha: 0
+  generateCubemap: 6
+  cubemapConvolution: 0
+  seamlessCubemap: 0
+  textureFormat: 1
+  maxTextureSize: 2048
+  textureSettings:
+    serializedVersion: 2
+    filterMode: 1
+    aniso: 1
+    mipBias: 0
+    wrapU: 1
+    wrapV: 1
+    wrapW: 1
+  nPOTScale: 0
+  lightmap: 0
+  compressionQuality: 50
+  spriteMode: 1
+  spriteExtrude: 1
+  spriteMeshType: 1
+  alignment: 0
+  spritePivot: {x: 0.5, y: 0.5}
+  spritePixelsToUnits: 100
+  spriteBorder: {x: 0, y: 0, z: 0, w: 0}
+  spriteGenerateFallbackPhysicsShape: 1
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  spriteTessellationDetail: -1
+  textureType: 8
+  textureShape: 1
+  singleChannelComponent: 0
+  flipbookRows: 1
+  flipbookColumns: 1
+  maxTextureSizeSet: 0
+  compressionQualitySet: 0
+  textureFormatSet: 0
+  ignorePngGamma: 0
+  applyGammaDecoding: 0
+  swizzle: 50462976
+  cookieLightType: 0
+  platformSettings:
+  - serializedVersion: 4
+    buildTarget: DefaultTexturePlatform
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Standalone
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Android
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  spriteSheet:
+    serializedVersion: 2
+    sprites:
+    - serializedVersion: 2
+      name: OverlapBG_0
+      rect:
+        serializedVersion: 2
+        x: 92
+        y: 571
+        width: 124
+        height: 87
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: daef05fa31455cc70800000000000000
+      internalID: 8990684674637495981
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_1
+      rect:
+        serializedVersion: 2
+        x: 266
+        y: 542
+        width: 124
+        height: 86
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 93c53a44a5ecc5660800000000000000
+      internalID: 7375997176819964985
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_2
+      rect:
+        serializedVersion: 2
+        x: 1104
+        y: 581
+        width: 80
+        height: 50
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: fd216ac64226e4580800000000000000
+      internalID: -8841021109900537121
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_3
+      rect:
+        serializedVersion: 2
+        x: 1157
+        y: 611
+        width: 80
+        height: 50
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 57b72a6ac6e5af5e0800000000000000
+      internalID: -1875082474101245067
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_4
+      rect:
+        serializedVersion: 2
+        x: 1233
+        y: 596
+        width: 81
+        height: 49
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 271300868077d37c0800000000000000
+      internalID: -4089982008594255502
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_5
+      rect:
+        serializedVersion: 2
+        x: 1311
+        y: 576
+        width: 80
+        height: 49
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 7f729de3e05e0a2d0800000000000000
+      internalID: -3269361480124258313
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_6
+      rect:
+        serializedVersion: 2
+        x: 163
+        y: 490
+        width: 124
+        height: 87
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: bdde23ea4c6227bf0800000000000000
+      internalID: -328157196666606117
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_7
+      rect:
+        serializedVersion: 2
+        x: 1032
+        y: 527
+        width: 142
+        height: 78
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 4d49542bf1d982910800000000000000
+      internalID: 1812871609477076180
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_8
+      rect:
+        serializedVersion: 2
+        x: 1173
+        y: 511
+        width: 89
+        height: 96
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 5a1ee436545db3cc0800000000000000
+      internalID: -3730153372350750299
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_9
+      rect:
+        serializedVersion: 2
+        x: 1254
+        y: 532
+        width: 79
+        height: 49
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 2dd973af876c27500800000000000000
+      internalID: 392594340430978514
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_10
+      rect:
+        serializedVersion: 2
+        x: 21
+        y: 351
+        width: 169
+        height: 80
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 0a472870b8db529b0800000000000000
+      internalID: -5105466197730495328
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_11
+      rect:
+        serializedVersion: 2
+        x: 954
+        y: 411
+        width: 179
+        height: 101
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 13a550efcd394b6f0800000000000000
+      internalID: -669747867207509455
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_12
+      rect:
+        serializedVersion: 2
+        x: 57
+        y: 250
+        width: 170
+        height: 79
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 3a443fd14c9554730800000000000000
+      internalID: 3982688144330015907
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_13
+      rect:
+        serializedVersion: 2
+        x: 1295
+        y: 216
+        width: 174
+        height: 182
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 989a0fe9cdc9f5850800000000000000
+      internalID: 6367980869498481033
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_14
+      rect:
+        serializedVersion: 2
+        x: 130
+        y: 46
+        width: 216
+        height: 92
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 007f94a1fdf6603f0800000000000000
+      internalID: -934936868623354112
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_15
+      rect:
+        serializedVersion: 2
+        x: 1012
+        y: 100
+        width: 168
+        height: 72
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 968c74e44f59f6600800000000000000
+      internalID: 463754163160336489
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_16
+      rect:
+        serializedVersion: 2
+        x: 1127
+        y: 34
+        width: 167
+        height: 72
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 519e51c6494b763a0800000000000000
+      internalID: -6672165773364565739
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: OverlapBG_17
+      rect:
+        serializedVersion: 2
+        x: 1218
+        y: 95
+        width: 171
+        height: 72
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: a4ee3b5b2dcac9c50800000000000000
+      internalID: 6673398768847810122
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    outline: []
+    customData: 
+    physicsShape: []
+    bones: []
+    spriteID: 5e97eb03825dee720800000000000000
+    internalID: 0
+    vertices: []
+    indices: 
+    edges: []
+    weights: []
+    secondaryTextures: []
+    spriteCustomMetadata:
+      entries: []
+    nameFileIdTable:
+      OverlapBG_0: 8990684674637495981
+      OverlapBG_1: 7375997176819964985
+      OverlapBG_10: -5105466197730495328
+      OverlapBG_11: -669747867207509455
+      OverlapBG_12: 3982688144330015907
+      OverlapBG_13: 6367980869498481033
+      OverlapBG_14: -934936868623354112
+      OverlapBG_15: 463754163160336489
+      OverlapBG_16: -6672165773364565739
+      OverlapBG_17: 6673398768847810122
+      OverlapBG_2: -8841021109900537121
+      OverlapBG_3: -1875082474101245067
+      OverlapBG_4: -4089982008594255502
+      OverlapBG_5: -3269361480124258313
+      OverlapBG_6: -328157196666606117
+      OverlapBG_7: 1812871609477076180
+      OverlapBG_8: -3730153372350750299
+      OverlapBG_9: 392594340430978514
+  mipmapLimitGroupName: 
+  pSDRemoveMatte: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

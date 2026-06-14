@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "843282011159",
+    "project_id": "flappymobilegame",
+    "storage_bucket": "flappymobilegame.firebasestorage.app",
+    "firebase_url": "https://flappymobilegame-default-rtdb.firebaseio.com/"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:843282011159:android:4b9df5dcaaa1c9876d3852",
+        "android_client_info": {
+          "package_name": "com.TridentGameStudio.flappy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC2Rm_BjgNHi6MjIOwZ7wN4LNa8YUZYg_4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

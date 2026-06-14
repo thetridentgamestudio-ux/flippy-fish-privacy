@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools" package="com.google.unity.ads">
+  <uses-sdk android:minSdkVersion="23" />
+  <!-- Required for HapticManager vibration on Android API 26+ -->
+  <uses-permission android:name="android.permission.VIBRATE" />
+  <!-- Required for AdMob on Android 13+ -->
+  <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+  <uses-permission android:name="android.permission.INTERNET" />
+  <application>
+    <uses-library android:required="false" android:name="org.apache.http.legacy" />
+    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-1561072595701997~9743462999" />
+    <meta-data android:name="com.google.unity.ads.UNITY_VERSION" android:value="6000.3.9f1" />
+  </application>
+</manifest>
