@@ -462,19 +462,28 @@ void SpawnPipe(float spawnX)
     float topPadding = 0.15f;
 
     // =====================================================
-    // GAP CENTER LIMITS
+    // GAP CENTER LIMITS  — gradual vertical range expansion
     // =====================================================
-float bottomMargin = 1.0f;  // minimum stub of bottom pipe above ground
 
-// Ceiling = just below screen top so top pipe always has some stub
-float gameplayCeiling = Camera.main.orthographicSize - 0.8f;
+    // Hard physical bounds: each pipe must have at least 1.0f stub visible
+    float pipeStub  = 1.0f;
+    float absMin    = groundTop + currentGap / 2f + pipeStub;
+    float absMax    = Camera.main.orthographicSize - currentGap / 2f - pipeStub;
+    if (absMax < absMin) absMax = absMin; // guard for very large gap values
 
-float minGapCenter = groundTop + currentGap / 2f + bottomMargin;
-float maxGapCenter = gameplayCeiling - currentGap / 2f;
+    // Vertical zone expands with score so early pipes stay near centre
+    // where the player spawns, and the full screen is only unlocked gradually.
+    float playableHalf = (absMax - absMin) * 0.5f;
+    float zoneCentre   = (absMin + absMax) * 0.5f;
 
-// Safety: if range collapsed (very large gap), centre it
-if (maxGapCenter < minGapCenter)
-    maxGapCenter = minGapCenter = (groundTop + gameplayCeiling) * 0.5f;
+    float zoneRadius = Score < 5  ? playableHalf * 0.22f   // intro:  tight central strip
+                     : Score < 10 ? playableHalf * 0.35f   // easy:   gentle drift
+                     : Score < 20 ? playableHalf * 0.52f   // medium: lower/upper thirds reachable
+                     : Score < 35 ? playableHalf * 0.68f   // hard:   most of screen
+                     :              playableHalf * 0.85f;  // expert: near full screen
+
+    float minGapCenter = Mathf.Max(absMin, zoneCentre - zoneRadius);
+    float maxGapCenter = Mathf.Min(absMax, zoneCentre + zoneRadius);
 
     float gapCenter;
 
@@ -507,16 +516,18 @@ if (maxGapCenter < minGapCenter)
     {
         isReliefPipe = false;
 
-        // Always use the full valid range — narrow artificial margins caused
-        // all gaps to cluster at the same height, making the game trivial.
-        // Enforce a minimum vertical jump so the player must always move.
-        float range = maxGapCenter - minGapCenter;
-        float minChange = Score < 5 ? 0.6f   // intro: gentle
-                        : Score < 15 ? 0.9f  // easy: moderate movement
-                        : 1.3f;              // 15+: must move every pipe
+        // Pick a random center within the score-gated zone.
+        // Enforce a minimum vertical jump that grows with score so the player
+        // must move more as the game progresses. Zero at start so pipe 1 can
+        // sit right where the fish spawns without forcing immediate movement.
+        float range     = maxGapCenter - minGapCenter;
+        float minChange = Score < 3  ? 0.0f   // intro: no forced movement (first few pipes)
+                        : Score < 8  ? 0.4f   // easy: tiny nudge
+                        : Score < 18 ? 0.8f   // medium: noticeable movement needed
+                        :              1.2f;  // hard+: must fly each pipe
 
-        // Cap minChange so it's never larger than half the valid range
-        minChange = Mathf.Min(minChange, range * 0.45f);
+        // Safety: never larger than 40% of available zone
+        minChange = Mathf.Min(minChange, range * 0.40f);
 
         float newCenter;
         int attempts = 0;
