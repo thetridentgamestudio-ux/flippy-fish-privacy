@@ -157,6 +157,10 @@ CreateUsernameText();
     CreateDailyQuestsPanelUI();   // Create panel ONCE, hidden
     CreateDailyQuestsButton();    // Create button, add listeners
 
+    // Ensure PowerUpManager exists — MonoBehaviour singleton not placed in scene
+    if (FindObjectOfType<PowerUpManager>() == null)
+        new GameObject("PowerUpManager").AddComponent<PowerUpManager>();
+
     // -----------------------------
     // 5. Load high score
     // -----------------------------
@@ -1450,19 +1454,19 @@ public DifficultyTier GetTier()
 {
     // Staggered difficulty — only ONE axis changes meaningfully per tier boundary
     // so players feel a gradual ramp instead of a wall
-    if (Score < 5)   return new DifficultyTier { pipeSpd=4.0f,  gap=4.10f, gravScale=1.08f, spawnInterval=1.55f, reliefEvery=0  }; // INTRO     0-4   (grace period)
-    if (Score < 10)  return new DifficultyTier { pipeSpd=4.0f,  gap=3.95f, gravScale=1.10f, spawnInterval=1.50f, reliefEvery=0  }; // EASY      5-9   (gap tightens only)
-    if (Score < 15)  return new DifficultyTier { pipeSpd=4.3f,  gap=3.90f, gravScale=1.12f, spawnInterval=1.47f, reliefEvery=0  }; // EASY+     10-14 (speed nudge only)
-    if (Score < 20)  return new DifficultyTier { pipeSpd=4.4f,  gap=3.80f, gravScale=1.15f, spawnInterval=1.45f, reliefEvery=0  }; // MEDIUM    15-19 (gap nudge only)
-    if (Score < 25)  return new DifficultyTier { pipeSpd=4.7f,  gap=3.75f, gravScale=1.18f, spawnInterval=1.42f, reliefEvery=12 }; // MEDIUM+   20-24 (speed — relief pipes start)
-    if (Score < 30)  return new DifficultyTier { pipeSpd=4.8f,  gap=3.65f, gravScale=1.20f, spawnInterval=1.40f, reliefEvery=10 }; // HARD      25-29 (gap only)
-    if (Score < 40)  return new DifficultyTier { pipeSpd=5.2f,  gap=3.55f, gravScale=1.25f, spawnInterval=1.35f, reliefEvery=8  }; // HARD+     30-39
-    if (Score < 50)  return new DifficultyTier { pipeSpd=5.6f,  gap=3.35f, gravScale=1.30f, spawnInterval=1.28f, reliefEvery=6  }; // EXPERT    40-49
-    if (Score < 60)  return new DifficultyTier { pipeSpd=6.0f,  gap=3.15f, gravScale=1.35f, spawnInterval=1.20f, reliefEvery=5  }; // EXPERT+   50-59
-    if (Score < 75)  return new DifficultyTier { pipeSpd=6.6f,  gap=2.95f, gravScale=1.40f, spawnInterval=1.10f, reliefEvery=4  }; // MASTER    60-74
-    if (Score < 100) return new DifficultyTier { pipeSpd=7.2f,  gap=2.75f, gravScale=1.45f, spawnInterval=1.00f, reliefEvery=3  }; // MASTER+   75-99
-    if (Score < 130) return new DifficultyTier { pipeSpd=8.0f,  gap=2.55f, gravScale=1.50f, spawnInterval=0.90f, reliefEvery=2  }; // LEGEND    100-129
-                     return new DifficultyTier { pipeSpd=8.8f,  gap=2.40f, gravScale=1.55f, spawnInterval=0.80f, reliefEvery=1  }; // GODLIKE   130+
+    if (Score < 5)   return new DifficultyTier { pipeSpd=5.5f,  gap=4.00f, gravScale=1.10f, spawnInterval=1.30f, reliefEvery=0  }; // INTRO     0-4
+    if (Score < 10)  return new DifficultyTier { pipeSpd=5.8f,  gap=3.85f, gravScale=1.12f, spawnInterval=1.25f, reliefEvery=0  }; // EASY      5-9
+    if (Score < 15)  return new DifficultyTier { pipeSpd=6.0f,  gap=3.75f, gravScale=1.15f, spawnInterval=1.22f, reliefEvery=0  }; // EASY+     10-14
+    if (Score < 20)  return new DifficultyTier { pipeSpd=6.2f,  gap=3.65f, gravScale=1.18f, spawnInterval=1.18f, reliefEvery=0  }; // MEDIUM    15-19
+    if (Score < 25)  return new DifficultyTier { pipeSpd=6.5f,  gap=3.55f, gravScale=1.20f, spawnInterval=1.15f, reliefEvery=12 }; // MEDIUM+   20-24
+    if (Score < 30)  return new DifficultyTier { pipeSpd=6.8f,  gap=3.45f, gravScale=1.23f, spawnInterval=1.12f, reliefEvery=10 }; // HARD      25-29
+    if (Score < 40)  return new DifficultyTier { pipeSpd=7.2f,  gap=3.30f, gravScale=1.28f, spawnInterval=1.08f, reliefEvery=8  }; // HARD+     30-39
+    if (Score < 50)  return new DifficultyTier { pipeSpd=7.6f,  gap=3.10f, gravScale=1.33f, spawnInterval=1.02f, reliefEvery=6  }; // EXPERT    40-49
+    if (Score < 60)  return new DifficultyTier { pipeSpd=8.0f,  gap=2.90f, gravScale=1.38f, spawnInterval=0.96f, reliefEvery=5  }; // EXPERT+   50-59
+    if (Score < 75)  return new DifficultyTier { pipeSpd=8.6f,  gap=2.70f, gravScale=1.43f, spawnInterval=0.90f, reliefEvery=4  }; // MASTER    60-74
+    if (Score < 100) return new DifficultyTier { pipeSpd=9.2f,  gap=2.50f, gravScale=1.48f, spawnInterval=0.82f, reliefEvery=3  }; // MASTER+   75-99
+    if (Score < 130) return new DifficultyTier { pipeSpd=10.0f, gap=2.35f, gravScale=1.53f, spawnInterval=0.74f, reliefEvery=2  }; // LEGEND    100-129
+                     return new DifficultyTier { pipeSpd=11.0f, gap=2.20f, gravScale=1.58f, spawnInterval=0.65f, reliefEvery=1  }; // GODLIKE   130+
 }
 
 // Smooth interpolation between current and target tier values

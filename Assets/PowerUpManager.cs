@@ -209,6 +209,7 @@ public class PowerUpManager : MonoBehaviour
 
     public static PowerUp GetPowerUpDef(PowerUp.PowerUpType type)
     {
+        if (instance == null || instance.powerUpDefs == null) return null;
         if (instance.powerUpDefs.ContainsKey(type))
             return instance.powerUpDefs[type];
         return null;
