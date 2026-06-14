@@ -55,29 +55,17 @@ int soundPref = PlayerPrefs.GetInt("SOUND", 1);
 isSoundOn = soundPref == 1;
 AudioListener.volume = isSoundOn ? 1f : 0f;
 
-// ✅ FIX: Check PlayerPrefs instead of GetUsername()
 if (PlayerPrefs.HasKey("USERNAME"))
 {
     playerUsername = PlayerPrefs.GetString("USERNAME");
-
-    // Hide username input
-    if (usernameInput != null)
-        usernameInput.gameObject.SetActive(false);
-
-    // Remove dark background
-    Image panelImage = usernamePanel.GetComponent<Image>();
-
-    if (panelImage != null)
-        panelImage.color = new Color(0, 0, 0, 0f);
-
-    // Keep panel active for Start button
-    usernamePanel.SetActive(true);
 }
-else
-{
 
-    ShowUsernamePanel();
-}
+// Always hide the username panel on launch — name collected lazily after first game-over
+if (usernamePanel != null) usernamePanel.SetActive(false);
+
+// Auto-start immediately so players reach gameplay with zero friction
+if (GameBootstrap.Instance != null)
+    GameBootstrap.Instance.StartGame();
 CreateRestartButton();
 }
  void InitializeFirebase()
@@ -997,6 +985,13 @@ public void OnGameOver(int score)
         PlayerPrefs.SetInt("BestScore", bestScore);
     }
 
+    // Lazy username collection — prompt only once, only when they have a real score
+    if (score > 0 && !PlayerPrefs.HasKey("USERNAME"))
+    {
+        ShowLazyUsernamePrompt(score);
+        return; // SaveScore called after they submit/skip
+    }
+
     if (score > 0) SaveScore(playerUsername, score);
 
     // ✅ DO NOT show leaderboard here anymore.
@@ -1036,6 +1031,163 @@ Sprite GetRoundedSprite()
 Sprite GetCircleSprite()
 {
     return null;
+}
+
+// Lazy username prompt shown after first real game-over
+// Framed as "Save your score!" not a forced gate
+void ShowLazyUsernamePrompt(int score)
+{
+    GameObject canvas = mainCanvas.gameObject;
+
+    GameObject overlay = new GameObject("LazyUsernameOverlay");
+    overlay.transform.SetParent(canvas.transform, false);
+
+    Image bg = overlay.AddComponent<Image>();
+    bg.color = new Color(0f, 0f, 0f, 0.78f);
+    RectTransform bgRT = overlay.GetComponent<RectTransform>();
+    bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
+    bgRT.offsetMin = bgRT.offsetMax = Vector2.zero;
+
+    // Card
+    GameObject card = new GameObject("Card");
+    card.transform.SetParent(overlay.transform, false);
+    Image cardImg = card.AddComponent<Image>();
+    cardImg.color = new Color(0.04f, 0.08f, 0.18f, 0.97f);
+    RectTransform cardRT = card.GetComponent<RectTransform>();
+    cardRT.anchorMin = cardRT.anchorMax = cardRT.pivot = new Vector2(0.5f, 0.5f);
+    cardRT.sizeDelta = new Vector2(500, 380);
+
+    // Title
+    GameObject titleGO = new GameObject("Title");
+    titleGO.transform.SetParent(card.transform, false);
+    TextMeshProUGUI title = titleGO.AddComponent<TextMeshProUGUI>();
+    title.text = "Save your score!";
+    title.fontSize = 44; title.fontStyle = FontStyles.Bold;
+    title.alignment = TextAlignmentOptions.Center;
+    title.color = new Color(1f, 0.88f, 0.2f);
+    RectTransform titleRT = title.GetComponent<RectTransform>();
+    titleRT.anchorMin = new Vector2(0f, 1f); titleRT.anchorMax = new Vector2(1f, 1f);
+    titleRT.pivot = new Vector2(0.5f, 1f);
+    titleRT.anchoredPosition = new Vector2(0, -24); titleRT.sizeDelta = new Vector2(0, 60);
+
+    // Score display
+    GameObject scoreGO = new GameObject("ScoreDisplay");
+    scoreGO.transform.SetParent(card.transform, false);
+    TextMeshProUGUI scoreTxt = scoreGO.AddComponent<TextMeshProUGUI>();
+    scoreTxt.text = "You scored " + score + "!";
+    scoreTxt.fontSize = 34; scoreTxt.alignment = TextAlignmentOptions.Center;
+    scoreTxt.color = Color.white;
+    RectTransform scoreRT = scoreTxt.GetComponent<RectTransform>();
+    scoreRT.anchorMin = new Vector2(0f, 1f); scoreRT.anchorMax = new Vector2(1f, 1f);
+    scoreRT.pivot = new Vector2(0.5f, 1f);
+    scoreRT.anchoredPosition = new Vector2(0, -90); scoreRT.sizeDelta = new Vector2(0, 48);
+
+    // Input
+    GameObject inputGO = new GameObject("LazyInput");
+    inputGO.transform.SetParent(card.transform, false);
+    inputGO.AddComponent<Image>().color = new Color(0.9f, 0.9f, 0.9f, 1f);
+    TMP_InputField inputField = inputGO.AddComponent<TMP_InputField>();
+    inputField.characterLimit = 12;
+    inputField.contentType = TMP_InputField.ContentType.Alphanumeric;
+    RectTransform inputRT = inputGO.GetComponent<RectTransform>();
+    inputRT.anchorMin = inputRT.anchorMax = inputRT.pivot = new Vector2(0.5f, 0.5f);
+    inputRT.sizeDelta = new Vector2(380, 70); inputRT.anchoredPosition = new Vector2(0, 20);
+
+    GameObject inputText = new GameObject("Text");
+    inputText.transform.SetParent(inputGO.transform, false);
+    TextMeshProUGUI inputTMP = inputText.AddComponent<TextMeshProUGUI>();
+    inputTMP.fontSize = 32; inputTMP.color = Color.black;
+    inputTMP.alignment = TextAlignmentOptions.Center;
+    RectTransform itRT = inputText.GetComponent<RectTransform>();
+    itRT.anchorMin = Vector2.zero; itRT.anchorMax = Vector2.one;
+    itRT.offsetMin = itRT.offsetMax = Vector2.zero;
+    inputField.textComponent = inputTMP;
+
+    GameObject phGO = new GameObject("Placeholder");
+    phGO.transform.SetParent(inputGO.transform, false);
+    TextMeshProUGUI ph = phGO.AddComponent<TextMeshProUGUI>();
+    ph.text = "Enter username"; ph.fontSize = 32;
+    ph.color = Color.gray; ph.alignment = TextAlignmentOptions.Center;
+    RectTransform phRT = ph.GetComponent<RectTransform>();
+    phRT.anchorMin = Vector2.zero; phRT.anchorMax = Vector2.one;
+    phRT.offsetMin = phRT.offsetMax = Vector2.zero;
+    inputField.placeholder = ph;
+
+    TextMeshProUGUI errorTxt = null;
+    GameObject errorGO = new GameObject("Error");
+    errorGO.transform.SetParent(card.transform, false);
+    errorTxt = errorGO.AddComponent<TextMeshProUGUI>();
+    errorTxt.fontSize = 22; errorTxt.color = new Color(1f, 0.4f, 0.3f);
+    errorTxt.alignment = TextAlignmentOptions.Center; errorTxt.text = "";
+    RectTransform errRT = errorTxt.GetComponent<RectTransform>();
+    errRT.anchorMin = new Vector2(0f, 0.5f); errRT.anchorMax = new Vector2(1f, 0.5f);
+    errRT.pivot = new Vector2(0.5f, 0.5f);
+    errRT.anchoredPosition = new Vector2(0, -30); errRT.sizeDelta = new Vector2(0, 36);
+
+    // Save button
+    GameObject saveBtn = new GameObject("SaveBtn");
+    saveBtn.transform.SetParent(card.transform, false);
+    Image saveBtnImg = saveBtn.AddComponent<Image>();
+    saveBtnImg.color = new Color(0.1f, 0.75f, 0.2f);
+    Button saveBtnComp = saveBtn.AddComponent<Button>();
+    RectTransform saveBtnRT = saveBtn.GetComponent<RectTransform>();
+    saveBtnRT.anchorMin = saveBtnRT.anchorMax = saveBtnRT.pivot = new Vector2(0.5f, 0f);
+    saveBtnRT.sizeDelta = new Vector2(360, 80); saveBtnRT.anchoredPosition = new Vector2(0, 48);
+    GameObject saveTxtGO = new GameObject("Label"); saveTxtGO.transform.SetParent(saveBtn.transform, false);
+    TextMeshProUGUI saveTxt = saveTxtGO.AddComponent<TextMeshProUGUI>();
+    saveTxt.text = "SAVE SCORE"; saveTxt.fontSize = 28; saveTxt.fontStyle = FontStyles.Bold;
+    saveTxt.color = Color.white; saveTxt.alignment = TextAlignmentOptions.Center;
+    RectTransform saveTxtRT = saveTxt.GetComponent<RectTransform>();
+    saveTxtRT.anchorMin = Vector2.zero; saveTxtRT.anchorMax = Vector2.one;
+    saveTxtRT.offsetMin = saveTxtRT.offsetMax = Vector2.zero;
+
+    // Skip button
+    GameObject skipBtn = new GameObject("SkipBtn");
+    skipBtn.transform.SetParent(card.transform, false);
+    Image skipBtnImg = skipBtn.AddComponent<Image>();
+    skipBtnImg.color = new Color(0.3f, 0.3f, 0.3f, 0.7f);
+    Button skipBtnComp = skipBtn.AddComponent<Button>();
+    RectTransform skipBtnRT = skipBtn.GetComponent<RectTransform>();
+    skipBtnRT.anchorMin = skipBtnRT.anchorMax = skipBtnRT.pivot = new Vector2(0.5f, 0f);
+    skipBtnRT.sizeDelta = new Vector2(360, 56); skipBtnRT.anchoredPosition = new Vector2(0, -16);
+    GameObject skipTxtGO = new GameObject("Label"); skipTxtGO.transform.SetParent(skipBtn.transform, false);
+    TextMeshProUGUI skipTxt = skipTxtGO.AddComponent<TextMeshProUGUI>();
+    skipTxt.text = "Skip for now"; skipTxt.fontSize = 22;
+    skipTxt.color = new Color(0.8f, 0.8f, 0.8f); skipTxt.alignment = TextAlignmentOptions.Center;
+    RectTransform skipTxtRT = skipTxt.GetComponent<RectTransform>();
+    skipTxtRT.anchorMin = Vector2.zero; skipTxtRT.anchorMax = Vector2.one;
+    skipTxtRT.offsetMin = skipTxtRT.offsetMax = Vector2.zero;
+
+    System.Text.RegularExpressions.Regex validChars =
+        new System.Text.RegularExpressions.Regex(@"^[a-zA-Z0-9_]+$");
+
+    saveBtnComp.onClick.AddListener(() =>
+    {
+        string name = inputField.text.Trim();
+        if (string.IsNullOrEmpty(name) || name.Length < 3)
+        {
+            if (errorTxt != null) errorTxt.text = "Min 3 characters!";
+            return;
+        }
+        if (!validChars.IsMatch(name))
+        {
+            if (errorTxt != null) errorTxt.text = "Letters, numbers, _ only!";
+            return;
+        }
+        playerUsername = name.Length > 12 ? name.Substring(0, 12) : name;
+        GameBootstrap.Instance?.SaveUsername(playerUsername);
+        GameBootstrap.Instance?.RefreshUsernameText();
+        Destroy(overlay);
+        SaveScore(playerUsername, lastScore);
+    });
+
+    skipBtnComp.onClick.AddListener(() =>
+    {
+        playerUsername = "Player" + UnityEngine.Random.Range(100, 9999);
+        Destroy(overlay);
+    });
+
+    overlay.transform.SetAsLastSibling();
 }
 
 }

@@ -135,7 +135,10 @@ public class AchievementManager : MonoBehaviour
 
         SkinManager.AddCoins(ach.rewardCoins);
         AnalyticsEvents.LogAchievementUnlocked(ach.id, ach.rewardCoins);
-        Debug.Log($"Achievement unlocked: {ach.title} (+{ach.rewardCoins} coins)");
+        if (GameBootstrap.Instance != null)
+            GameBootstrap.Instance.ShowToast(
+                $"Achievement: {ach.title}  +{ach.rewardCoins} coins",
+                new UnityEngine.Color(0.4f, 0.9f, 0.5f));
         instance.SaveAchievements();
     }
 

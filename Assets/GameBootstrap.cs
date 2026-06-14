@@ -73,6 +73,7 @@ private float tapBounceAmount = 20f; // pixels
     bool waitingForAd = false;
 private float bgWidth = 20f;
 private float _sessionStartTime = 0f;
+private Coroutine _activeToast = null;
 public enum GameState
 {
     Menu,
@@ -123,6 +124,12 @@ void Awake()
     }
 
 StartCoroutine(GetCountryCode());
+
+    // Daily streak — check once per session, show toast if reward earned
+    int streakCoins = DailyStreakManager.CheckStreak();
+    if (streakCoins > 0)
+        StartCoroutine(ShowStreakToastDelayed(streakCoins));
+
     // -----------------------------
     // 1. Ensure UI exists before gameplay
     // -----------------------------
@@ -709,6 +716,11 @@ if (maxGapCenter > bottomPipeCap) maxGapCenter = bottomPipeCap;
     st.bootstrap = this;
 
     // =====================================================
+    // POWER-UP SPAWN
+    // =====================================================
+    TrySpawnPowerUpNearPipe(spawnX, gapCenter);
+
+    // =====================================================
     // DYNAMIC GRAVITY
     // =====================================================
 
@@ -940,14 +952,25 @@ public void TriggerGameOver()
             int best = PlayerPrefs.GetInt("BestScore", 0);
             if (Score >= best && Score > 0)
             {
-                gameOverScoreText.text = "Score: " + Score + "\n<size=70%><color=#FFD740>NEW BEST!</color></size>";
-                HapticManager.NewBest();     // triple pulse for new record
-                SkinManager.OnNewBest();     // +3 coins — awarded ONCE per game
+                gameOverScoreText.text = "Score: " + Score + "\n<size=70%><color=#FFD740>✦ NEW BEST! ✦</color></size>";
+                HapticManager.NewBest();
+                SkinManager.OnNewBest();
+            }
+            else if (best > 0)
+            {
+                int gap = best - Score;
+                string gapMsg = gap <= 3
+                    ? "<color=#FF9F40>So close!</color>"
+                    : gap <= 10
+                        ? "<color=#AAD4FF>Just " + gap + " away from your best</color>"
+                        : "<color=#888888>Best: " + best + "</color>";
+                gameOverScoreText.text = "Score: " + Score + "\n<size=60%>" + gapMsg + "</size>";
+                HapticManager.Death();
             }
             else
             {
-                gameOverScoreText.text = "Score: " + Score + "   Best: " + best;
-                HapticManager.Death();       // strong thud on normal death
+                gameOverScoreText.text = "Score: " + Score;
+                HapticManager.Death();
             }
         }
 
@@ -990,6 +1013,23 @@ public void TriggerGameOver()
             hint.alignment = TextAlignmentOptions.Center;
             hint.fontSize = 18;
             hint.color = new Color(1f, 0.85f, 0.2f);
+
+            // "Come back tomorrow" streak teaser
+            TextMeshProUGUI streakTeaser = gameOverPanel
+                .transform.Find("StreakTeaser")?.GetComponent<TextMeshProUGUI>();
+            if (streakTeaser == null)
+            {
+                GameObject teaserGO = new GameObject("StreakTeaser");
+                teaserGO.transform.SetParent(gameOverPanel.transform, false);
+                streakTeaser = teaserGO.AddComponent<TextMeshProUGUI>();
+                RectTransform trt = teaserGO.GetComponent<RectTransform>();
+                trt.anchoredPosition = new Vector2(0, 130);
+                trt.sizeDelta = new Vector2(340, 48);
+            }
+            streakTeaser.text = DailyStreakManager.GetTomorrowTeaser();
+            streakTeaser.alignment = TextAlignmentOptions.Center;
+            streakTeaser.fontSize = 17;
+            streakTeaser.color = new Color(0.6f, 0.9f, 1f);
         }
     }
     else
@@ -1027,11 +1067,12 @@ IEnumerator FadeInGameOverUI()
 
 public void StartGame()
 {
-    _currentSpeed   = 4.0f;
-    _currentGravity = 1.0f;
-    lastGap         = 3.2f;
-    hardPipeCounter = 0;
-    forceHighNext   = false;
+    _currentSpeed    = 4.0f;
+    _currentGravity  = 1.0f;
+    lastGap          = 3.2f;
+    hardPipeCounter  = 0;
+    forceHighNext    = false;
+    _seedPowerUpUsed = false;
     _sessionStartTime = Time.realtimeSinceStartup;
     AnalyticsEvents.LogSessionStart();
     FirebaseGameManager manager = FindObjectOfType<FirebaseGameManager>();
@@ -1242,10 +1283,16 @@ if (restartButton != null) restartButton.SetActive(false);
     StartCoroutine(ShowNewRun());
     lastGap = 3.2f;
     lastGapCenter = 1.5f;
-    _currentSpeed   = 4.0f;  // reset smoothed values
+    _currentSpeed   = 4.0f;
     _currentGravity = 1.0f;
-    hardPipeCounter = 0;      // reset relief pipe counter
-    forceHighNext   = false;  // reset alternating pipe pattern
+    hardPipeCounter = 0;
+    forceHighNext   = false;
+    _seedPowerUpUsed = false; // allow one seeded power-up in next session
+
+    // Track lifetime games played for new-player seeding logic
+    int played = PlayerPrefs.GetInt("TotalGamesPlayed", 0);
+    PlayerPrefs.SetInt("TotalGamesPlayed", played + 1);
+    PlayerPrefs.Save();
 
     // 🔥 IMPORTANT FIX
     nextPipeX = 30f;
@@ -1392,10 +1439,14 @@ public struct DifficultyTier
 
 public DifficultyTier GetTier()
 {
-    // Smoothed difficulty curve — smaller jumps, better progression feel
-    if (Score < 10)  return new DifficultyTier { pipeSpd=4.0f,  gap=4.00f, gravScale=1.10f, spawnInterval=1.50f, reliefEvery=0  }; // EASY      0-9
-    if (Score < 20)  return new DifficultyTier { pipeSpd=4.4f,  gap=3.85f, gravScale=1.15f, spawnInterval=1.45f, reliefEvery=0  }; // MEDIUM    10-19 (smoother)
-    if (Score < 30)  return new DifficultyTier { pipeSpd=4.8f,  gap=3.70f, gravScale=1.20f, spawnInterval=1.40f, reliefEvery=10 }; // HARD      20-29
+    // Staggered difficulty — only ONE axis changes meaningfully per tier boundary
+    // so players feel a gradual ramp instead of a wall
+    if (Score < 5)   return new DifficultyTier { pipeSpd=4.0f,  gap=4.10f, gravScale=1.08f, spawnInterval=1.55f, reliefEvery=0  }; // INTRO     0-4   (grace period)
+    if (Score < 10)  return new DifficultyTier { pipeSpd=4.0f,  gap=3.95f, gravScale=1.10f, spawnInterval=1.50f, reliefEvery=0  }; // EASY      5-9   (gap tightens only)
+    if (Score < 15)  return new DifficultyTier { pipeSpd=4.3f,  gap=3.90f, gravScale=1.12f, spawnInterval=1.47f, reliefEvery=0  }; // EASY+     10-14 (speed nudge only)
+    if (Score < 20)  return new DifficultyTier { pipeSpd=4.4f,  gap=3.80f, gravScale=1.15f, spawnInterval=1.45f, reliefEvery=0  }; // MEDIUM    15-19 (gap nudge only)
+    if (Score < 25)  return new DifficultyTier { pipeSpd=4.7f,  gap=3.75f, gravScale=1.18f, spawnInterval=1.42f, reliefEvery=12 }; // MEDIUM+   20-24 (speed — relief pipes start)
+    if (Score < 30)  return new DifficultyTier { pipeSpd=4.8f,  gap=3.65f, gravScale=1.20f, spawnInterval=1.40f, reliefEvery=10 }; // HARD      25-29 (gap only)
     if (Score < 40)  return new DifficultyTier { pipeSpd=5.2f,  gap=3.55f, gravScale=1.25f, spawnInterval=1.35f, reliefEvery=8  }; // HARD+     30-39
     if (Score < 50)  return new DifficultyTier { pipeSpd=5.6f,  gap=3.35f, gravScale=1.30f, spawnInterval=1.28f, reliefEvery=6  }; // EXPERT    40-49
     if (Score < 60)  return new DifficultyTier { pipeSpd=6.0f,  gap=3.15f, gravScale=1.35f, spawnInterval=1.20f, reliefEvery=5  }; // EXPERT+   50-59
@@ -3036,16 +3087,133 @@ void ShowDailyQuests()
 void CloseDailyQuests()
 {
     if (!isQuestPanelOpen) return;
-    
+
     if (dailyQuestPanel == null || darkOverlay == null)
         return;
-    
-    // Hide existing panel (toggle visibility)
+
     dailyQuestPanel.SetActive(false);
     darkOverlay.SetActive(false);
     isQuestPanelOpen = false;
-    
-    Debug.Log("[🎯 DailyQuests] Panel closed");
+}
+
+// ── POWER-UP SPAWN ───────────────────────────────────────────────────────
+// Called once per pipe. Handles both normal 5% chance and new-player seeding.
+private bool _seedPowerUpUsed = false; // one seeded power-up per session
+
+void TrySpawnPowerUpNearPipe(float pipeX, float gapCenter)
+{
+    int gamesPlayed = PlayerPrefs.GetInt("TotalGamesPlayed", 0);
+    bool isNewPlayer = gamesPlayed < 3;
+
+    bool shouldSpawn = false;
+
+    // Seeding: guarantee one power-up between pipes 6-9 for new players
+    if (isNewPlayer && !_seedPowerUpUsed && Score >= 6 && Score <= 9)
+    {
+        shouldSpawn = true;
+        _seedPowerUpUsed = true;
+    }
+    else
+    {
+        // Normal 5% random spawn — only after score 3 so player has seen gameplay first
+        shouldSpawn = Score >= 3 && UnityEngine.Random.value < 0.05f;
+    }
+
+    if (!shouldSpawn) return;
+
+    // Weighted random power-up type
+    PowerUpManager.PowerUp.PowerUpType type = PowerUpManager.TrySpawnPowerUp();
+    // Offset spawn X so power-up appears just after the pipe, not on top of it
+    float spawnOffsetX = pipeX + 1.5f;
+    // Spawn slightly above gap centre so it's visible and reachable
+    Vector3 spawnPos = new Vector3(spawnOffsetX, gapCenter + 0.4f, 0f);
+    PowerUpSpawner.SpawnPowerUp(spawnPos, type);
+}
+
+// ── STREAK TOAST (delayed so canvas is guaranteed ready) ─────────────────
+IEnumerator ShowStreakToastDelayed(int coins)
+{
+    yield return new WaitForSecondsRealtime(1.2f);
+    int day = DailyStreakManager.CurrentStreak;
+    ShowToast($"Day {day} streak!  +{coins} coins", new Color(1f, 0.75f, 0.1f));
+}
+
+// ── TOAST NOTIFICATION ───────────────────────────────────────────────────
+// Slide-in banner for achievements, streaks, etc.
+// Safe to call from any context — replaces an in-flight toast automatically.
+public void ShowToast(string message, Color? accentColor = null)
+{
+    if (mainCanvas == null) return;
+    if (_activeToast != null) StopCoroutine(_activeToast);
+    _activeToast = StartCoroutine(ToastCoroutine(message, accentColor ?? new Color(1f, 0.85f, 0.2f)));
+}
+
+IEnumerator ToastCoroutine(string message, Color accent)
+{
+    // Build toast
+    GameObject toastGO = new GameObject("Toast");
+    toastGO.transform.SetParent(mainCanvas.transform, false);
+    toastGO.transform.SetAsLastSibling();
+
+    Image bg = toastGO.AddComponent<Image>();
+    bg.color = new Color(0.05f, 0.1f, 0.22f, 0.95f);
+
+    RectTransform rt = toastGO.GetComponent<RectTransform>();
+    rt.anchorMin = new Vector2(0.5f, 1f);
+    rt.anchorMax = new Vector2(0.5f, 1f);
+    rt.pivot     = new Vector2(0.5f, 1f);
+    rt.sizeDelta = new Vector2(Screen.width * 0.82f, 90f);
+    float hiddenY  = 10f;
+    float shownY   = -(Screen.height * 0.12f);
+    rt.anchoredPosition = new Vector2(0, hiddenY);
+
+    // Accent bar on left
+    GameObject bar = new GameObject("Bar");
+    bar.transform.SetParent(toastGO.transform, false);
+    Image barImg = bar.AddComponent<Image>();
+    barImg.color = accent;
+    RectTransform barRT = bar.GetComponent<RectTransform>();
+    barRT.anchorMin = new Vector2(0f, 0f); barRT.anchorMax = new Vector2(0f, 1f);
+    barRT.pivot = new Vector2(0f, 0.5f);
+    barRT.sizeDelta = new Vector2(8f, 0f); barRT.anchoredPosition = Vector2.zero;
+
+    // Text
+    GameObject textGO = new GameObject("Text");
+    textGO.transform.SetParent(toastGO.transform, false);
+    TextMeshProUGUI txt = textGO.AddComponent<TextMeshProUGUI>();
+    txt.text = message;
+    txt.font = tmpFont;
+    txt.fontSize = 26f;
+    txt.color = Color.white;
+    txt.alignment = TextAlignmentOptions.MidlineLeft;
+    RectTransform txtRT = txt.GetComponent<RectTransform>();
+    txtRT.anchorMin = Vector2.zero; txtRT.anchorMax = Vector2.one;
+    txtRT.offsetMin = new Vector2(22f, 0f); txtRT.offsetMax = Vector2.zero;
+
+    // Slide in
+    float elapsed = 0f; float slideDuration = 0.22f;
+    while (elapsed < slideDuration)
+    {
+        elapsed += Time.unscaledDeltaTime;
+        rt.anchoredPosition = new Vector2(0, Mathf.Lerp(hiddenY, shownY, elapsed / slideDuration));
+        yield return null;
+    }
+    rt.anchoredPosition = new Vector2(0, shownY);
+
+    // Hold
+    yield return new WaitForSecondsRealtime(2.8f);
+
+    // Slide out
+    elapsed = 0f;
+    while (elapsed < slideDuration)
+    {
+        elapsed += Time.unscaledDeltaTime;
+        rt.anchoredPosition = new Vector2(0, Mathf.Lerp(shownY, hiddenY, elapsed / slideDuration));
+        yield return null;
+    }
+
+    Destroy(toastGO);
+    _activeToast = null;
 }
 
 }
