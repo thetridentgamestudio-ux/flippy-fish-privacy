@@ -500,70 +500,40 @@ if (maxGapCenter > bottomPipeCap) maxGapCenter = bottomPipeCap;
     if (spawnReliefPipe)
     {
         isReliefPipe = true;
-
-        gapCenter = Mathf.Lerp(
-            minGapCenter,
-            maxGapCenter,
-            0.5f
-        );
-
+        // Relief pipe: centre the gap so the player gets a breather
+        gapCenter = Mathf.Lerp(minGapCenter, maxGapCenter, 0.5f);
         currentGap += 0.4f;
     }
     else
     {
         isReliefPipe = false;
 
-        if (Score < 15)
+        // Always use the full valid range — narrow artificial margins caused
+        // all gaps to cluster at the same height, making the game trivial.
+        // Enforce a minimum vertical jump so the player must always move.
+        float range = maxGapCenter - minGapCenter;
+        float minChange = Score < 5 ? 0.6f   // intro: gentle
+                        : Score < 15 ? 0.9f  // easy: moderate movement
+                        : 1.3f;              // 15+: must move every pipe
+
+        // Cap minChange so it's never larger than half the valid range
+        minChange = Mathf.Min(minChange, range * 0.45f);
+
+        float newCenter;
+        int attempts = 0;
+        do
         {
-            // Clamp within valid screen bounds so pipes always fill top/bottom
-            gapCenter = Random.Range(minGapCenter, maxGapCenter);
+            newCenter = Random.Range(minGapCenter, maxGapCenter);
+            attempts++;
         }
-        else if (Score < 30)
-        {
-            gapCenter = Random.Range(
-                minGapCenter + 1f,
-                maxGapCenter - 1f
-            );
-        }
-        else
-        {
-            // Score 30+ — fully random across full range
-            // Enforce minimum vertical change from last pipe so player must move
-            float minChange = 1.2f; // must move at least this far vertically
-            float newCenter;
-            int attempts = 0;
-            do
-            {
-                newCenter = Random.Range(minGapCenter, maxGapCenter);
-                attempts++;
-            }
-            while (Mathf.Abs(newCenter - lastGapCenter) < minChange && attempts < 10);
-            gapCenter = newCenter;
-        }
+        while (Mathf.Abs(newCenter - lastGapCenter) < minChange && attempts < 15);
+        gapCenter = newCenter;
     }
 
     lastGapCenter = gapCenter;
 
-    // =====================================================
-    // SPECIAL PIPES
-    // =====================================================
-
-    if (Score > 30)
-    {
-        float specialChance = 0.25f;
-
-        if (Random.value < specialChance)
-        {
-            if (Random.value < 0.5f)
-            {
-                gapCenter = minGapCenter;
-            }
-            else
-            {
-                gapCenter = maxGapCenter;
-            }
-        }
-    }
+    // (special pipe override removed — it was forcing gaps to screen edges,
+    //  fighting the randomisation above and causing clustering)
 
     // =====================================================
     // GAP EDGES
