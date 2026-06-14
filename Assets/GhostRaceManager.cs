@@ -53,10 +53,7 @@ public class GhostRaceManager : MonoBehaviour
     // ── UI banner (top-right, shows who you're racing) ─────
     private TextMeshProUGUI  _racingBanner;
 
-    // Physics constants — must match PlayerController / GameBootstrap values
-    private const float GRAVITY    = -19.62f; // Physics2D.gravity.y × gravityScale 2
-    private const float JUMP_FORCE =  12.5f;
-    private const float GHOST_X    = -1.8f;   // slightly left of player spawn
+    private const float GHOST_X = -1.8f; // slightly left of player spawn
 
     // ── Lifecycle ──────────────────────────────────────────
 
@@ -285,38 +282,43 @@ public class GhostRaceManager : MonoBehaviour
 
     IEnumerator PlaybackCoroutine()
     {
-        float elapsed    = 0f;
-        int   nextTapIdx = 0;
-        float ghostY     = 0f;
-        float ghostVel   = 0f;
+        float elapsed = 0f;
 
         while (_isPlayingBack && elapsed < _ghostDuration + 2f)
         {
             elapsed += Time.deltaTime;
 
-            // Fire any taps whose timestamp has passed
-            while (nextTapIdx < _ghostTapTimes.Count &&
-                   elapsed >= _ghostTapTimes[nextTapIdx])
+            // Find which two recorded taps we are between
+            int prevIdx = 0;
+            for (int i = 0; i < _ghostTapTimes.Count; i++)
             {
-                // Snap Y to recorded position — eliminates physics drift
-                if (nextTapIdx < _ghostTapPositions.Count)
-                    ghostY = _ghostTapPositions[nextTapIdx];
+                if (_ghostTapTimes[i] <= elapsed) prevIdx = i;
+                else break;
+            }
+            int nextIdx = Mathf.Min(prevIdx + 1, _ghostTapTimes.Count - 1);
 
-                // Cancel downward velocity then jump (mirrors SwimUp)
-                ghostVel = Mathf.Max(ghostVel, 0f) + JUMP_FORCE * 0.82f;
-                nextTapIdx++;
+            // Interpolate Y between the two surrounding tap positions
+            float ghostY;
+            if (prevIdx == nextIdx)
+            {
+                ghostY = _ghostTapPositions[prevIdx];
+            }
+            else
+            {
+                float segStart = _ghostTapTimes[prevIdx];
+                float segEnd   = _ghostTapTimes[nextIdx];
+                float t        = Mathf.InverseLerp(segStart, segEnd, elapsed);
+                ghostY = Mathf.Lerp(_ghostTapPositions[prevIdx], _ghostTapPositions[nextIdx], t);
             }
 
-            // Simple Euler integration
-            ghostVel  += GRAVITY * Time.deltaTime;
-            ghostVel   = Mathf.Clamp(ghostVel, -6f, 6f);
-            ghostY    += ghostVel * Time.deltaTime;
+            // Tilt: angle down between taps, level up near a tap
+            float timeSinceTap = elapsed - _ghostTapTimes[prevIdx];
+            float tilt = Mathf.Clamp(timeSinceTap * -20f + 15f, -40f, 20f);
 
             if (_ghostFish != null)
             {
                 _ghostFish.transform.position = new Vector3(GHOST_X, ghostY, 0.1f);
-                float angle = Mathf.Clamp(ghostVel * 5f, -45f, 25f);
-                _ghostFish.transform.rotation = Quaternion.Euler(0f, 0f, angle);
+                _ghostFish.transform.rotation = Quaternion.Euler(0f, 0f, tilt);
             }
 
             yield return null;
