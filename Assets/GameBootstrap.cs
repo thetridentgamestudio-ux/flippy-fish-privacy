@@ -1670,7 +1670,8 @@ void CreateAllUI()
             GhostRaceManager.Instance.StartRecording();
             Sprite skinSprite = player != null
                 ? player.GetComponent<SpriteRenderer>()?.sprite : null;
-            GhostRaceManager.Instance.BeginGhostPlayback(skinSprite, mainCanvas);
+            float playerScale = player != null ? player.transform.localScale.x : 1.4f;
+            GhostRaceManager.Instance.BeginGhostPlayback(skinSprite, mainCanvas, playerScale);
         }
     }
 

@@ -209,12 +209,12 @@ public class GhostRaceManager : MonoBehaviour
 
     // ── Playback ───────────────────────────────────────────
 
-    public void BeginGhostPlayback(Sprite fishSprite, Canvas uiCanvas)
+    public void BeginGhostPlayback(Sprite fishSprite, Canvas uiCanvas, float playerScale = 1.4f)
     {
         if (_ghostTapTimes == null || _ghostTapTimes.Count == 0) return;
 
         StopGhostPlayback();
-        CreateGhostFish(fishSprite);
+        CreateGhostFish(fishSprite, playerScale);
         CreateRacingBanner(uiCanvas);
         _isPlayingBack     = true;
         _playbackCoroutine = StartCoroutine(PlaybackCoroutine());
@@ -232,11 +232,11 @@ public class GhostRaceManager : MonoBehaviour
         if (_racingBanner != null) { _racingBanner.gameObject.SetActive(false); }
     }
 
-    void CreateGhostFish(Sprite sprite)
+    void CreateGhostFish(Sprite sprite, float playerScale = 1.4f)
     {
         _ghostFish = new GameObject("GhostFish");
         _ghostFish.transform.position = new Vector3(GHOST_X, 0f, 0.1f);
-        _ghostFish.transform.localScale = Vector3.one * 1.4f;
+        _ghostFish.transform.localScale = Vector3.one * playerScale * 0.85f; // slightly smaller than player
 
         _ghostSR = _ghostFish.AddComponent<SpriteRenderer>();
         if (sprite != null) _ghostSR.sprite = sprite;
