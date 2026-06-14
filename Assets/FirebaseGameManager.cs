@@ -317,10 +317,169 @@ scoreTextUI.gameObject.SetActive(true);
 
 
         // APPLY TEXT
-     StartCoroutine(ShowLeaderboardNextFrame(display.ToString(), scores.Count));
+        StartCoroutine(ShowLeaderboardNextFrame(display.ToString(), scores.Count));
+
+        // Build country standings from same snapshot and cache it
+        BuildCountryStandings(scores);
     });
-    
+
+    // Ensure tab buttons exist on the panel
+    EnsureLeaderboardTabs();
 }
+
+// ── Country leaderboard ───────────────────────────────────────────────
+
+private struct CountryEntry { public string code; public int topScore; public int players; }
+private List<CountryEntry> _countryStandings = new List<CountryEntry>();
+private bool _showingCountries = false;
+private GameObject _tabPlayers, _tabCountries;
+
+static string CountryFlagEmoji(string code)
+{
+    if (string.IsNullOrEmpty(code) || code.Length != 2) return "🌐";
+    // Regional indicator symbols: 🇦 = U+1F1E6, offset from 'A'
+    int a = code.ToUpper()[0] - 'A' + 0x1F1E6;
+    int b = code.ToUpper()[1] - 'A' + 0x1F1E6;
+    return char.ConvertFromUtf32(a) + char.ConvertFromUtf32(b);
+}
+
+void BuildCountryStandings(List<(string username, int score)> scores)
+{
+    var byCountry = new Dictionary<string, (int top, int count)>();
+    foreach (var (username, score) in scores)
+    {
+        // Username format: "IN_PlayerName_1234" — country is the prefix before first '_'
+        string[] parts = username.Split('_');
+        string code = parts.Length >= 2 && parts[0].Length == 2
+            ? parts[0].ToUpper() : "XX";
+
+        if (!byCountry.ContainsKey(code))
+            byCountry[code] = (score, 1);
+        else
+        {
+            var cur = byCountry[code];
+            byCountry[code] = (Mathf.Max(cur.top, score), cur.count + 1);
+        }
+    }
+
+    _countryStandings = new List<CountryEntry>();
+    foreach (var kv in byCountry)
+        _countryStandings.Add(new CountryEntry { code = kv.Key, topScore = kv.Value.top, players = kv.Value.count });
+
+    _countryStandings.Sort((a, b) => b.topScore.CompareTo(a.topScore));
+}
+
+void EnsureLeaderboardTabs()
+{
+    if (_tabPlayers != null) return; // already created
+    if (leaderboardPanel == null) return;
+
+    float panelW = Screen.width * 0.88f;
+    float panelH = Screen.height * 0.60f;
+    float tabW   = panelW * 0.42f;
+    float tabH   = Screen.height * 0.052f;
+    float tabY   = panelH * 0.5f - tabH * 0.5f - 8f; // just inside top edge
+
+    // PLAYERS tab
+    _tabPlayers = new GameObject("Tab_Players");
+    _tabPlayers.transform.SetParent(leaderboardPanel.transform, false);
+    _tabPlayers.AddComponent<Image>().color = new Color(0.15f, 0.35f, 0.6f, 1f);
+    var tabPlayersBtn = _tabPlayers.AddComponent<Button>();
+    tabPlayersBtn.onClick.AddListener(() => SwitchTab(false));
+    var tpRT = _tabPlayers.GetComponent<RectTransform>();
+    tpRT.anchorMin = tpRT.anchorMax = tpRT.pivot = new Vector2(0.5f, 0.5f);
+    tpRT.sizeDelta = new Vector2(tabW, tabH);
+    tpRT.anchoredPosition = new Vector2(-tabW * 0.5f - 4f, tabY);
+    AddTabLabel(_tabPlayers, "🏆 PLAYERS");
+
+    // COUNTRIES tab
+    _tabCountries = new GameObject("Tab_Countries");
+    _tabCountries.transform.SetParent(leaderboardPanel.transform, false);
+    _tabCountries.AddComponent<Image>().color = new Color(0.1f, 0.38f, 0.18f, 1f);
+    var tabCountriesBtn = _tabCountries.AddComponent<Button>();
+    tabCountriesBtn.onClick.AddListener(() => SwitchTab(true));
+    var tcRT = _tabCountries.GetComponent<RectTransform>();
+    tcRT.anchorMin = tcRT.anchorMax = tcRT.pivot = new Vector2(0.5f, 0.5f);
+    tcRT.sizeDelta = new Vector2(tabW, tabH);
+    tcRT.anchoredPosition = new Vector2(tabW * 0.5f + 4f, tabY);
+    AddTabLabel(_tabCountries, "🌍 COUNTRIES");
+}
+
+void AddTabLabel(GameObject tab, string text)
+{
+    var go = new GameObject("TabLabel");
+    go.transform.SetParent(tab.transform, false);
+    var tmp = go.AddComponent<TextMeshProUGUI>();
+    tmp.text = text; tmp.fontStyle = FontStyles.Bold;
+    tmp.fontSize = Screen.height * 0.019f;
+    tmp.color = Color.white; tmp.alignment = TextAlignmentOptions.Center;
+    var rt = tmp.GetComponent<RectTransform>();
+    rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+    rt.offsetMin = rt.offsetMax = Vector2.zero;
+}
+
+void SwitchTab(bool showCountries)
+{
+    _showingCountries = showCountries;
+
+    // Highlight active tab
+    if (_tabPlayers   != null) _tabPlayers.GetComponent<Image>().color   = showCountries
+        ? new Color(0.08f, 0.20f, 0.40f, 1f) : new Color(0.25f, 0.50f, 0.85f, 1f);
+    if (_tabCountries != null) _tabCountries.GetComponent<Image>().color = showCountries
+        ? new Color(0.15f, 0.55f, 0.25f, 1f) : new Color(0.08f, 0.25f, 0.12f, 1f);
+
+    if (showCountries)
+        ShowCountryTab();
+    else
+        StartCoroutine(RestorePlayerTab());
+}
+
+void ShowCountryTab()
+{
+    if (_countryStandings.Count == 0)
+    {
+        leaderboardText.text = "\n<color=#aaa>No country data yet.\nPlay more games!</color>";
+        return;
+    }
+
+    string myCountry = PlayerPrefs.GetString("COUNTRY", "XX").ToUpper();
+    int colFlag  = 0;
+    int colCode  = Mathf.RoundToInt(Screen.width * 0.16f);
+    int colScore = Mathf.RoundToInt(Screen.width * 0.56f);
+    int colCount = Mathf.RoundToInt(Screen.width * 0.72f);
+
+    var sb = new System.Text.StringBuilder();
+    for (int i = 0; i < _countryStandings.Count && i < 20; i++)
+    {
+        var c    = _countryStandings[i];
+        string flag  = CountryFlagEmoji(c.code);
+        string rank  = i < 3 ? "  " : $"{i+1}.";
+        string line  = $"<pos={colFlag}>{rank}<pos={colCode}>{flag} {c.code}<pos={colScore}>{c.topScore}<pos={colCount}><color=#aaa>×{c.players}</color>";
+
+        bool isMe = c.code == myCountry;
+        sb.Append(isMe
+            ? $"<color=#FFE234><b>{line}</b></color>\n"
+            : $"{line}\n");
+    }
+
+    int myRank = _countryStandings.FindIndex(c => c.code == myCountry) + 1;
+    if (myRank > 0)
+        sb.Append($"\n<color=#FFE234><b>Your Country Rank: #{myRank}</b></color>");
+
+    leaderboardText.text = sb.ToString();
+
+    // Hide player medals — not relevant in country view
+    foreach (var medal in medalObjects)
+        if (medal != null) medal.SetActive(false);
+}
+
+IEnumerator RestorePlayerTab()
+{
+    // Re-fetch player leaderboard to restore text
+    yield return null;
+    ShowLeaderboardUI(lastScore);
+}
+
     void CreateStartMenuUI()
 {
     // Canvas
