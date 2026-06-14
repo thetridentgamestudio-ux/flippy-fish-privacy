@@ -2881,15 +2881,19 @@ void CreateDailyQuestsPanelUI()
     GameObject bgPanelGO = new GameObject("BackgroundOverlay");
     bgPanelGO.transform.SetParent(mainCanvas.transform, false);
     bgPanelGO.transform.SetSiblingIndex(questPanelGO.transform.GetSiblingIndex() - 1);
-    
+
     Image bgOverlay = bgPanelGO.AddComponent<Image>();
     bgOverlay.color = new Color(0, 0, 0, 0.6f);
-    
+
     RectTransform bgRT = bgPanelGO.GetComponent<RectTransform>();
     bgRT.anchorMin = Vector2.zero;
     bgRT.anchorMax = Vector2.one;
     bgRT.offsetMin = Vector2.zero;
     bgRT.offsetMax = Vector2.zero;
+
+    // Hide immediately — before any content is built so an exception below can never leave them visible
+    questPanelGO.SetActive(false);
+    bgPanelGO.SetActive(false);
 
     // ===== CREATE TITLE =====
     GameObject titleGO = new GameObject("Title");
@@ -2906,10 +2910,11 @@ void CreateDailyQuestsPanelUI()
     titleRT.sizeDelta = new Vector2(650, 60);
 
     // ===== CREATE QUEST ITEMS =====
-    var quests = DailyQuestManager.GetDailyQuests();
+    // DailyQuestManager initialises in Start(); GameBootstrap runs in Awake() — guard null
+    var quests = DailyQuestManager.Instance != null ? DailyQuestManager.GetDailyQuests() : null;
     float yOffset = -120;
     int questCount = 0;
-    foreach (var quest in quests)
+    foreach (var quest in quests ?? new System.Collections.Generic.List<DailyQuestManager.Quest>())
     {
         questCount++;
         
