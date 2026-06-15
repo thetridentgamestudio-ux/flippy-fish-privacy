@@ -91,7 +91,7 @@ public class MultiplayerManager : MonoBehaviour
         IsHost = true;
         _mySlot  = "host";
         _oppSlot = "guest";
-        _seed    = Random.Range(10000, 99999);
+        _seed    = UnityEngine.Random.Range(10000, 99999);
         RoomCode = GenerateCode();
 
         var data = new Dictionary<string, object>
@@ -221,7 +221,7 @@ public class MultiplayerManager : MonoBehaviour
         HideCountdown();
 
         // Seed the random so both players get identical pipes
-        Random.InitState(_seed);
+        UnityEngine.Random.InitState(_seed);
 
         State = MPState.Playing;
         IsMultiplayerGame = true;
@@ -535,7 +535,7 @@ public class MultiplayerManager : MonoBehaviour
 
     void JoinWaitingQueue(string username, System.Action<string> onStatus, System.Action<string> onError)
     {
-        _seed = Random.Range(10000, 99999);
+        _seed = UnityEngine.Random.Range(10000, 99999);
 
         var entry = new Dictionary<string, object>
         {
@@ -627,7 +627,7 @@ public class MultiplayerManager : MonoBehaviour
     void StartBotMatch()
     {
         _isBotMatch  = true;
-        _oppUsername = BOT_NAMES[Random.Range(0, BOT_NAMES.Length)];
+        _oppUsername = BOT_NAMES[UnityEngine.Random.Range(0, BOT_NAMES.Length)];
 
         // No Firebase room needed — bot is purely local
         _mySlot  = "player";
@@ -654,7 +654,7 @@ public class MultiplayerManager : MonoBehaviour
         yield return new WaitForSecondsRealtime(0.5f);
         HideCountdown();
 
-        Random.InitState(_seed);
+        UnityEngine.Random.InitState(_seed);
         State = MPState.Playing;
         IsMultiplayerGame = true;
 
@@ -673,7 +673,7 @@ public class MultiplayerManager : MonoBehaviour
     IEnumerator BotSimulation()
     {
         // Bot survives a random score between 8 and 28 then "dies"
-        int botDeathScore = Random.Range(8, 29);
+        int botDeathScore = UnityEngine.Random.Range(8, 29);
 
         float botY   = 0f;
         float botVel = 0f;
@@ -681,7 +681,7 @@ public class MultiplayerManager : MonoBehaviour
         const float JUMP_FORCE = 10.5f;
 
         // Tap interval: mimic a mediocre human — tap every 0.45–0.75s
-        float nextTapIn = Random.Range(0.3f, 0.6f);
+        float nextTapIn = UnityEngine.Random.Range(0.3f, 0.6f);
         float elapsed   = 0f;
 
         while (State == MPState.Playing)
@@ -694,7 +694,7 @@ public class MultiplayerManager : MonoBehaviour
             if (nextTapIn <= 0f)
             {
                 botVel    = Mathf.Max(botVel, 0f) + JUMP_FORCE;
-                nextTapIn = Random.Range(0.42f, 0.72f);
+                nextTapIn = UnityEngine.Random.Range(0.42f, 0.72f);
             }
 
             botVel  += GRAVITY * dt;
@@ -792,7 +792,7 @@ public class MultiplayerManager : MonoBehaviour
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars
         var code = new System.Text.StringBuilder(4);
         for (int i = 0; i < 4; i++)
-            code.Append(chars[Random.Range(0, chars.Length)]);
+            code.Append(chars[UnityEngine.Random.Range(0, chars.Length)]);
         return code.ToString();
     }
 }
