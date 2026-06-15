@@ -174,7 +174,7 @@ public class PowerUpManager : MonoBehaviour
 
             case PowerUp.PowerUpType.SpeedBoost:
                 // Tell PlayerController to boost jump force
-                var pc = Object.FindFirstObjectByType<PlayerController>();
+                var pc = UnityEngine.Object.FindFirstObjectByType<PlayerController>();
                 if (pc != null) pc.ApplySpeedBoost(def.duration);
                 break;
         }
