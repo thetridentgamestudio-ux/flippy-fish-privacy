@@ -51,6 +51,7 @@ public GameObject restartButton;
     TextMeshProUGUI usernameText;
     
      public int Score = 0;
+     public int CoinsThisRun = 0;  // coins collected in current run, reset on restart
      Vector3 originalPlayerScale;
      private Canvas mainCanvas;
     public float minGap = 3.0f;       // smallest possible gap
@@ -107,6 +108,9 @@ private float maxGravity = -14f;          // max gravity at highest difficulty
     private GameObject darkOverlay;          // Store overlay reference
     private bool isQuestPanelOpen = false;   // Track visibility state
     private GameObject questButtonGO;        // Store button reference
+    private Transform  _questContentRoot;    // Parent for quest rows — cleared and rebuilt on open
+    private bool _isMultiplayerRound = false; // true while in a multiplayer game — changes game-over UI
+    private GameObject _mpReplayButton;      // Replay/Reinvite button shown after MP game ends
 
 void Awake()
 {
@@ -244,6 +248,9 @@ Time.timeScale = 0f;
      
 
         UpdateScoreText();
+
+        // Show first-launch onboarding once — after all UI is created
+        OnboardingOverlay.ShowIfNeeded(mainCanvas);
     }
 
  void Update()
@@ -861,6 +868,7 @@ Sprite MakeRoundedRectSprite(int width = 512, int height = 160, int radius = 50)
 
     // Award coins for passing pipe (includes milestone bonuses)
     SkinManager.OnPipePassed(Score);
+    CoinsThisRun++;
 
     // Single best score check — save only, coins awarded in TriggerGameOver
     int best = PlayerPrefs.GetInt("BestScore", 0);
@@ -893,17 +901,31 @@ public void TriggerGameOver()
 {
     if (IsGameOver) return;
 
-
-
     IsGameOver = true;
     CurrentState = GameState.GameOver;
+
+    // ── End-of-run rewards: XP + quests ──────────────────────────────
+    // Ensure both managers exist (they self-create if missing from scene)
+    BattlePassManager.Create();
+    DailyQuestManager.Create();
+
+    // XP = 10 per pipe passed, minimum 5 for any run so even short games progress
+    int xpEarned = Mathf.Max(Score * 10, Score > 0 ? 5 : 0);
+    if (xpEarned > 0) BattlePassManager.AddXP(xpEarned);
+
+    // Quest progress — update all relevant types with this run's stats
+    if (Score > 0)
+    {
+        DailyQuestManager.UpdateQuestProgress(DailyQuestManager.Quest.QuestType.ScoreGoal, Score);
+        DailyQuestManager.UpdateQuestProgress(DailyQuestManager.Quest.QuestType.ReachDifficulty, Score);
+    }
+    if (CoinsThisRun > 0)
+        DailyQuestManager.UpdateQuestProgress(DailyQuestManager.Quest.QuestType.CollectCoins, CoinsThisRun);
+    // ─────────────────────────────────────────────────────────────────
 
     // Multiplayer — notify before ghost race so result shows correctly
     if (MultiplayerManager.Instance != null && MultiplayerManager.Instance.IsMultiplayerGame)
         MultiplayerManager.Instance.OnLocalPlayerDied(Score);
-
-    // Ghost Race — save this run to Firebase if it's a new personal best
-    GhostRaceManager.Instance?.EndRun(Score, playerUsername);
 
     float sessionDuration = Time.realtimeSinceStartup - _sessionStartTime;
     AnalyticsEvents.LogGameOver(Score, SkinManager.GetCoins(), sessionDuration);
@@ -980,17 +1002,38 @@ public void TriggerGameOver()
         gameOverPanel.SetActive(true);
         gameOverPanel.transform.SetAsLastSibling();
 
-        bool canRevive = (firebase == null || !firebase.hasRevivedThisRun);
-        if (reviveButton != null)  reviveButton.SetActive(canRevive);
-        if (restartButton != null) restartButton.SetActive(true);
-
-        // Show skins + quest buttons on game over screen
-        if (firebase != null) firebase.SetSkinsButtonVisible(true);
-        if (questButtonGO != null) questButtonGO.SetActive(true);
-        
-        // Show next skin unlock hint
-        if (gameOverPanel != null)
+        if (_isMultiplayerRound)
         {
+            // ── MULTIPLAYER GAME OVER: hide solo buttons, show Replay/Reinvite ──
+            if (reviveButton  != null) reviveButton.SetActive(false);
+            if (restartButton != null) restartButton.SetActive(false);
+            // Quest button hidden in MP — not relevant mid-tournament context
+            if (questButtonGO != null) questButtonGO.SetActive(false);
+
+            ShowMPReplayButtons(gameOverPanel);
+        }
+        else
+        {
+            // ── SOLO GAME OVER: standard revive + restart ─────────────────────
+            if (_mpReplayButton != null) _mpReplayButton.SetActive(false);
+
+            bool canRevive = (firebase == null || !firebase.hasRevivedThisRun);
+            if (reviveButton  != null) reviveButton.SetActive(canRevive);
+            if (restartButton != null) restartButton.SetActive(true);
+
+            // Show skins + quest buttons on solo game over
+            if (firebase != null) firebase.SetSkinsButtonVisible(true);
+            if (questButtonGO != null)
+            {
+                questButtonGO.SetActive(true);
+                // Quest button must render BELOW the game-over panel
+                questButtonGO.transform.SetSiblingIndex(
+                    gameOverPanel.transform.GetSiblingIndex() - 1);
+            }
+
+            // ── Skin unlock hint — anchored BELOW restart button ──────────────
+            // Panel is 450px tall, centred at y=60. Restart button bottom edge ≈ y=-265-45=-310 from panel centre.
+            // Place hint at y=-330 so it sits just below restart with a small gap.
             TextMeshProUGUI hint = gameOverPanel.transform.Find("NextUnlockHint")?.GetComponent<TextMeshProUGUI>();
             if (hint == null)
             {
@@ -998,15 +1041,18 @@ public void TriggerGameOver()
                 hintGO.transform.SetParent(gameOverPanel.transform, false);
                 hint = hintGO.AddComponent<TextMeshProUGUI>();
                 RectTransform rt = hintGO.GetComponent<RectTransform>();
-                rt.anchoredPosition = new Vector2(0, 80);
-                rt.sizeDelta = new Vector2(300, 60);
+                rt.anchorMin        = new Vector2(0.05f, 0f);
+                rt.anchorMax        = new Vector2(0.95f, 0f);
+                rt.pivot            = new Vector2(0.5f, 1f);
+                rt.anchoredPosition = new Vector2(0f, -330f);
+                rt.sizeDelta        = new Vector2(0f, 38f);
             }
-            hint.text = "Collect 500 more coins to unlock next skin!";
+            hint.text      = "Collect 500 more coins to unlock next skin!";
             hint.alignment = TextAlignmentOptions.Center;
-            hint.fontSize = 18;
-            hint.color = new Color(1f, 0.85f, 0.2f);
+            hint.fontSize  = 15;
+            hint.color     = new Color(1f, 0.85f, 0.2f);
 
-            // "Come back tomorrow" streak teaser
+            // ── Streak teaser — below hint ────────────────────────────────────
             TextMeshProUGUI streakTeaser = gameOverPanel
                 .transform.Find("StreakTeaser")?.GetComponent<TextMeshProUGUI>();
             if (streakTeaser == null)
@@ -1015,13 +1061,16 @@ public void TriggerGameOver()
                 teaserGO.transform.SetParent(gameOverPanel.transform, false);
                 streakTeaser = teaserGO.AddComponent<TextMeshProUGUI>();
                 RectTransform trt = teaserGO.GetComponent<RectTransform>();
-                trt.anchoredPosition = new Vector2(0, 130);
-                trt.sizeDelta = new Vector2(340, 48);
+                trt.anchorMin        = new Vector2(0.05f, 0f);
+                trt.anchorMax        = new Vector2(0.95f, 0f);
+                trt.pivot            = new Vector2(0.5f, 1f);
+                trt.anchoredPosition = new Vector2(0f, -372f);
+                trt.sizeDelta        = new Vector2(0f, 36f);
             }
-            streakTeaser.text = DailyStreakManager.GetTomorrowTeaser();
+            streakTeaser.text      = DailyStreakManager.GetTomorrowTeaser();
             streakTeaser.alignment = TextAlignmentOptions.Center;
-            streakTeaser.fontSize = 17;
-            streakTeaser.color = new Color(0.6f, 0.9f, 1f);
+            streakTeaser.fontSize  = 14;
+            streakTeaser.color     = new Color(0.6f, 0.9f, 1f);
         }
     }
     else
@@ -1029,10 +1078,13 @@ public void TriggerGameOver()
         // Fallback if panel not created
         gameOverImageObj?.SetActive(true);
         gameOverImageObj?.transform.SetSiblingIndex(0);
-        FirebaseGameManager firebase = FindObjectOfType<FirebaseGameManager>();
-        bool canRevive = (firebase == null || !firebase.hasRevivedThisRun);
-        if (reviveButton != null) { reviveButton.SetActive(canRevive); reviveButton.transform.SetAsLastSibling(); }
-        if (restartButton != null) { restartButton.SetActive(true); restartButton.transform.SetAsLastSibling(); }
+        FirebaseGameManager firebase2 = FindObjectOfType<FirebaseGameManager>();
+        bool canRevive2 = (firebase2 == null || !firebase2.hasRevivedThisRun);
+        if (!_isMultiplayerRound)
+        {
+            if (reviveButton  != null) { reviveButton.SetActive(canRevive2);  reviveButton.transform.SetAsLastSibling(); }
+            if (restartButton != null) { restartButton.SetActive(true); restartButton.transform.SetAsLastSibling(); }
+        }
     }
 
     FirebaseGameManager fb = FindObjectOfType<FirebaseGameManager>();
@@ -1105,15 +1157,9 @@ public void StartGame()
     // Apply chosen fish skin
     ApplySelectedSkin();
 
-    if (bestScoreCard != null)
-        bestScoreCard.SetActive(false);
-    else if (bestScoreText != null)
-        bestScoreText.gameObject.SetActive(false);
-    if(scoreText != null)
-        scoreText.gameObject.SetActive(true);
+    HideMenuUI();
+    if (scoreText != null) scoreText.gameObject.SetActive(true);
     IsGameOver = false;
-if(gameLogo != null)
-        gameLogo.gameObject.SetActive(false);
     Time.timeScale = 1f; // resume game
  CancelInvoke(nameof(SpawnPipeRepeated));
 
@@ -1249,13 +1295,17 @@ void CreateUIText()
     /// <summary>
     /// Add coins to player balance (from quests, achievements, battle pass rewards, etc)
     /// </summary>
-public void RestartGame()
+// directStart=true: skip TAP TO START and begin playing immediately (used by game-over restart).
+// directStart=false: show TAP TO START screen (used by multiplayer lobby before HideMenuUI is called).
+public void RestartGame(bool directStart = true)
 {
+    // Do NOT clear _isMultiplayerRound here.
+    // StartMultiplayerRound() sets it true AFTER calling RestartGame() — clearing it here
+    // would always make it false by the time TriggerGameOver() checks it.
+    // The flag is cleared by the solo-restart path (MP replay "Main Menu" button) explicitly.
+    if (_mpReplayButton != null) { _mpReplayButton.SetActive(false); }
     CancelInvoke(nameof(SpawnPipeRepeated));
     FirebaseGameManager manager = FindObjectOfType<FirebaseGameManager>();
-
-    // Stop any active ghost — new ghost will start on first tap of new run
-    GhostRaceManager.Instance?.StopGhostPlayback();
 
     // Hide skins + quest buttons during gameplay
     if (manager != null) manager.SetSkinsButtonVisible(false);
@@ -1274,7 +1324,9 @@ if (restartButton != null) restartButton.SetActive(false);
     IsGameOver = false;
     CurrentState = GameState.WaitingForRevive; // frozen until first tap — set properly below
 
+    HideMenuUI();
     Score = 0;
+    CoinsThisRun = 0;
     UpdateScoreText();
     if (scoreText != null) scoreText.gameObject.SetActive(true);
     StartCoroutine(ShowNewRun());
@@ -1316,36 +1368,49 @@ if (restartButton != null) restartButton.SetActive(false);
         }
     }
 
-    // Set WaitingForRevive so pipes freeze and player waits for first tap
-    // PlayerController.Update handles the first tap and calls StartPipeSpawning()
-    CurrentState = GameState.WaitingForRevive;
+    HideGameOverUI();
 
-    // Show TAP hint
-    if (tapHintText != null)
-    {
-        tapHintText.gameObject.SetActive(true);
-        StartCoroutine(AnimateTapHint());
-    }
-
-    // Start music ready for when player taps
+    // Start music
     if (bgMusicSource != null && !bgMusicSource.isPlaying && bgMusicSource.clip != null)
         bgMusicSource.Play();
 
-    // Cancel any pending spawns — pipes start on first tap
+    // Cancel any pending spawns
     CancelInvoke(nameof(SpawnPipeRepeated));
-
-    HideGameOverUI();
-
-    // Show TAP TO START hint
-    if (tapHintText != null)
-    {
-        tapHintText.text = "TAP TO START";
-        tapHintText.gameObject.SetActive(true);
-        StartCoroutine(AnimateTapHint());
-    }
 
     // Reapply selected skin so start screen shows correct fish
     ApplySelectedSkin();
+
+    if (directStart)
+    {
+        // ── Direct restart: skip TAP TO START, begin immediately ──────────────
+        HideMenuUI();
+        if (tapHintText != null) tapHintText.gameObject.SetActive(false);
+        if (playerScript != null)
+        {
+            var rb = player.GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                rb.gravityScale   = _currentGravity;
+                rb.linearVelocity = Vector2.zero;
+            }
+            playerScript.SetInvincible(0.5f);
+        }
+        CurrentState = GameState.Playing;
+        StartPipeSpawning();
+    }
+    else
+    {
+        // ── Show TAP TO START (multiplayer lobby calls this then immediately
+        //    calls HideMenuUI again — the flag ensures the right UI shows) ─────
+        CurrentState = GameState.WaitingForRevive;
+        ShowMenuUI();
+        if (tapHintText != null)
+        {
+            tapHintText.text = "TAP TO START";
+            tapHintText.gameObject.SetActive(true);
+            StartCoroutine(AnimateTapHint());
+        }
+    }
 }
 Sprite GetRandomTopSprite()
 {
@@ -1668,15 +1733,7 @@ void CreateAllUI()
             tapHintText.text = "TAP TO START";
         }
 
-        // Ghost Race — start recording this run and begin replaying the loaded ghost
-        if (GhostRaceManager.Instance != null)
-        {
-            GhostRaceManager.Instance.StartRecording();
-            Sprite skinSprite = player != null
-                ? player.GetComponent<SpriteRenderer>()?.sprite : null;
-            float playerScale = player != null ? player.transform.localScale.x : 1.4f;
-            GhostRaceManager.Instance.BeginGhostPlayback(skinSprite, mainCanvas, playerScale);
-        }
+        // Ghost race removed from solo play.
     }
 
     IEnumerator AnimateTapHint()
@@ -1704,6 +1761,38 @@ void CreateAllUI()
         if (reviveButton != null) reviveButton.SetActive(false);
         if (restartButton != null) restartButton.SetActive(false);
         // Note: skins button visibility handled separately in RestartGame/StartGame
+    }
+
+    // Hide every menu-layer element so only gameplay HUD remains visible.
+    // tapHintText is intentionally excluded — it stays visible during WaitingForRevive
+    // and is hidden automatically when the player taps (PlayerController.Update).
+    // For multiplayer, tapHintText is hidden explicitly in StartMultiplayerRound().
+    public void HideMenuUI()
+    {
+        if (gameLogo != null)      gameLogo.gameObject.SetActive(false);
+        if (bestScoreCard != null) bestScoreCard.SetActive(false);
+        else if (bestScoreText != null) bestScoreText.gameObject.SetActive(false);
+
+        // usernamePanel lives on FirebaseGameManager
+        var fgm = FindObjectOfType<FirebaseGameManager>();
+        if (fgm != null && fgm.usernamePanel != null)
+            fgm.usernamePanel.SetActive(false);
+    }
+
+    // Restore menu-layer elements when returning to the pre-game waiting state (solo).
+    // NOT called for multiplayer — the menu panel is never shown between MP rounds.
+    public void ShowMenuUI()
+    {
+        if (gameLogo != null)    gameLogo.gameObject.SetActive(true);
+        if (bestScoreCard != null) { RefreshBestScore(); bestScoreCard.SetActive(true); }
+        else if (bestScoreText != null) { RefreshBestScore(); bestScoreText.gameObject.SetActive(true); }
+
+        // Quest button visible on menu so players can check quests before playing
+        if (questButtonGO != null) questButtonGO.SetActive(true);
+
+        var fgm = FindObjectOfType<FirebaseGameManager>();
+        if (fgm != null && fgm.usernamePanel != null)
+            fgm.usernamePanel.SetActive(true);
     }
     void CreateGameOverImage()
 {
@@ -1948,94 +2037,32 @@ void CreateMenuTitle()
 }
 void CreatePlayButton()
 {
-    Sprite rounded = MakeRoundedRectSprite(512, 160, 50);
-    Color btnColor = new Color(0.05f, 0.60f, 0.85f);
-
-    // Glow
-    GameObject glowGO = new GameObject("StartGlow");
-    glowGO.transform.SetParent(menuPanel.transform, false);
-    Image glowImg = glowGO.AddComponent<Image>();
-    glowImg.sprite = rounded;
-    glowImg.type = Image.Type.Simple;
-    glowImg.color = new Color(0f, 0.25f, 0.5f, 0.5f);
-    RectTransform glowRT = glowGO.GetComponent<RectTransform>();
-    glowRT.anchorMin = new Vector2(0.5f, 0.5f);
-    glowRT.anchorMax = new Vector2(0.5f, 0.5f);
-    glowRT.pivot = new Vector2(0.5f, 0.5f);
-    glowRT.sizeDelta = new Vector2(318, 108);
-    glowRT.anchoredPosition = new Vector2(0, -190);
-
-    // Shadow
-    GameObject shadowGO = new GameObject("StartShadow");
-    shadowGO.transform.SetParent(menuPanel.transform, false);
-    Image shadowImg = shadowGO.AddComponent<Image>();
-    shadowImg.sprite = rounded;
-    shadowImg.type = Image.Type.Simple;
-    shadowImg.color = new Color(0f, 0.1f, 0.25f, 0.5f);
-    RectTransform shadowRT = shadowGO.GetComponent<RectTransform>();
-    shadowRT.anchorMin = new Vector2(0.5f, 0.5f);
-    shadowRT.anchorMax = new Vector2(0.5f, 0.5f);
-    shadowRT.pivot = new Vector2(0.5f, 0.5f);
-    shadowRT.sizeDelta = new Vector2(312, 104);
-    shadowRT.anchoredPosition = new Vector2(4f, -196f);
-
-    // Main button
     GameObject buttonGO = new GameObject("PlayButton");
     buttonGO.transform.SetParent(menuPanel.transform, false);
-    Image img = buttonGO.AddComponent<Image>();
-    img.sprite = rounded;
-    img.type = Image.Type.Simple;
-    img.color = btnColor;
+
+    Image img       = buttonGO.AddComponent<Image>();
+    Sprite playSpr  = Resources.Load<Sprite>("btn_play");
+    if (playSpr != null) { img.sprite = playSpr; img.preserveAspect = true; }
+    else img.color = new Color(0.05f, 0.60f, 0.85f);
 
     Button btn = buttonGO.AddComponent<Button>();
     ColorBlock cb = btn.colors;
     cb.normalColor      = Color.white;
-    cb.highlightedColor = new Color(1.1f, 1.1f, 1.1f, 1f);
-    cb.pressedColor     = new Color(0.85f, 0.85f, 0.85f, 1f);
+    cb.highlightedColor = new Color(0.88f, 0.88f, 0.88f, 1f);
+    cb.pressedColor     = new Color(0.72f, 0.72f, 0.72f, 1f);
     cb.selectedColor    = Color.white;
     btn.targetGraphic   = img;
     btn.colors = cb;
     btn.onClick.AddListener(OnPlayPressed);
 
     RectTransform rt = buttonGO.GetComponent<RectTransform>();
-    rt.anchorMin = new Vector2(0.5f, 0.5f);
-    rt.anchorMax = new Vector2(0.5f, 0.5f);
-    rt.pivot = new Vector2(0.5f, 0.5f);
-    rt.sizeDelta = new Vector2(420, 150);
-    rt.anchoredPosition = new Vector2(0, -280); // moved lower for larger player
+    rt.anchorMin        = new Vector2(0.5f, 0.5f);
+    rt.anchorMax        = new Vector2(0.5f, 0.5f);
+    rt.pivot            = new Vector2(0.5f, 0.5f);
+    rt.sizeDelta        = new Vector2(420, 140);   // matches usernamePanel play button
+    rt.anchoredPosition = new Vector2(0, -280);
 
-    // Highlight strip
-    GameObject hlGO = new GameObject("Highlight");
-    hlGO.transform.SetParent(buttonGO.transform, false);
-    Image hlImg = hlGO.AddComponent<Image>();
-    hlImg.sprite = rounded;
-    hlImg.type = Image.Type.Simple;
-    hlImg.color = new Color(1f, 1f, 1f, 0.15f);
-    RectTransform hlRT = hlGO.GetComponent<RectTransform>();
-    hlRT.anchorMin = new Vector2(0f, 0.5f);
-    hlRT.anchorMax = Vector2.one;
-    hlRT.offsetMin = new Vector2(4f, 0f);
-    hlRT.offsetMax = new Vector2(-4f, -4f);
-
-    // Label
-    GameObject textGO = new GameObject("Text");
-    textGO.transform.SetParent(buttonGO.transform, false);
-    TextMeshProUGUI txt = textGO.AddComponent<TextMeshProUGUI>();
-    txt.text         = "▶  START";
-    txt.font         = tmpFont;
-    txt.fontSize     = 54;
-    txt.fontStyle    = FontStyles.Bold;
-    txt.alignment    = TextAlignmentOptions.Center;
-    txt.color        = Color.white;
-    txt.outlineColor = new Color(0f, 0.2f, 0.45f, 1f);
-    txt.outlineWidth = 0.2f;
-    RectTransform txtRT = textGO.GetComponent<RectTransform>();
-    txtRT.anchorMin = Vector2.zero;
-    txtRT.anchorMax = Vector2.one;
-    txtRT.offsetMin = Vector2.zero;
-    txtRT.offsetMax = Vector2.zero;
-
-    StartCoroutine(PulseButton(buttonGO, glowGO));
+    StartCoroutine(PulseButton(buttonGO, buttonGO));
 }
 
 IEnumerator PulseButton(GameObject btn, GameObject shadow)
@@ -2230,8 +2257,22 @@ public Canvas GetMainCanvas() => mainCanvas;
 /// <summary>Called by MultiplayerManager after the countdown to start a synced round.</summary>
 public void StartMultiplayerRound()
 {
+    // Set flag AFTER RestartGame() — RestartGame is now neutral about MP mode
+    // (it no longer clears the flag, but setting it before would be overwritten
+    // if RestartGame ever needed to reset state).
     RestartGame();
-    // RestartGame sets WaitingForRevive; MP games start immediately (no tap needed)
+    _isMultiplayerRound = true;
+    HideMenuUI();
+
+    // tapHintText is not in HideMenuUI() (solo needs it) — hide explicitly here.
+    if (tapHintText != null) tapHintText.gameObject.SetActive(false);
+    StopCoroutine(nameof(AnimateTapHint));
+
+    // Ensure the MP panel is fully gone — match-found overlay may still be fading.
+    var fgm = FindObjectOfType<FirebaseGameManager>();
+    if (fgm != null) fgm.HideMP();
+
+    // MP games begin immediately — no tap-to-start.
     CurrentState = GameState.Playing;
     StartPipeSpawning();
 }
@@ -2701,35 +2742,50 @@ void CreateGameOverButtons()
     scoreRT.sizeDelta        = new Vector2(0f, 95f); // tall enough for 2 lines
     gameOverScoreText = scoreLbl; // stored so TriggerGameOver can update it
 
-    reviveButton = CreateRoundedButton(
-        "ReviveButton", "REVIVE",
-        new Color(1f, 0.50f, 0f),
-        new Color(0.12f, 0.06f, 0f),
-        new Vector2(0f, -155f),   // moved down to give score space
-        new Vector2(360f, 90f),
-        panel.transform
-    );
-    reviveButton.GetComponent<Button>().onClick.AddListener(OnReviveClicked);
+    reviveButton = new GameObject("ReviveButton");
+    reviveButton.transform.SetParent(panel.transform, false);
+    Image reviveImg   = reviveButton.AddComponent<Image>();
+    Sprite reviveSpr  = Resources.Load<Sprite>("btn_revive");
+    if (reviveSpr != null) { reviveImg.sprite = reviveSpr; reviveImg.preserveAspect = true; }
+    else reviveImg.color = new Color(1f, 0.50f, 0f);
+    Button reviveBtn  = reviveButton.AddComponent<Button>();
+    reviveBtn.targetGraphic = reviveImg;
+    ColorBlock rvcb = reviveBtn.colors;
+    rvcb.highlightedColor = new Color(1f, 0.75f, 0.2f); rvcb.pressedColor = new Color(0.8f, 0.4f, 0f);
+    reviveBtn.colors = rvcb;
+    reviveBtn.onClick.AddListener(OnReviveClicked);
+    RectTransform reviveRT = reviveButton.GetComponent<RectTransform>();
+    reviveRT.anchorMin = new Vector2(0.5f, 1f); reviveRT.anchorMax = new Vector2(0.5f, 1f);
+    reviveRT.pivot     = new Vector2(0.5f, 1f);
+    reviveRT.anchoredPosition = new Vector2(0f, -155f);
+    reviveRT.sizeDelta        = new Vector2(360f, 90f);
 
     // ── RESTART BUTTON ────────────────────────────────────────────────────
-    restartButton = CreateRoundedButton(
-        "RestartButton", "RESTART",
-        new Color(0.10f, 0.75f, 0.20f),
-        Color.white,
-        new Vector2(0f, -265f),   // moved down from -238
-        new Vector2(360f, 90f),
-        panel.transform
-    );
-    restartButton.GetComponent<Button>().onClick.AddListener(() =>
+    restartButton = new GameObject("RestartButton");
+    restartButton.transform.SetParent(panel.transform, false);
+    Image restartImg  = restartButton.AddComponent<Image>();
+    Sprite restartSpr = Resources.Load<Sprite>("btn_restart");
+    if (restartSpr != null) { restartImg.sprite = restartSpr; restartImg.preserveAspect = true; }
+    else restartImg.color = new Color(0.10f, 0.75f, 0.20f);
+    Button restartBtn = restartButton.AddComponent<Button>();
+    restartBtn.targetGraphic = restartImg;
+    ColorBlock rscb = restartBtn.colors;
+    rscb.highlightedColor = new Color(0.3f, 1f, 0.45f); rscb.pressedColor = new Color(0.06f, 0.55f, 0.14f);
+    restartBtn.colors = rscb;
+    restartBtn.onClick.AddListener(() =>
     {
-        Time.timeScale = 1f; // reset from slow-motion before doing anything
-        // Route through FirebaseGameManager so interstitial ad plays on every restart
+        Time.timeScale = 1f;
         FirebaseGameManager firebase = FindObjectOfType<FirebaseGameManager>();
         if (firebase != null)
             firebase.TriggerRestartWithAd();
         else
-            RestartGame(); // fallback if Firebase not present
+            RestartGame();
     });
+    RectTransform restartRT = restartButton.GetComponent<RectTransform>();
+    restartRT.anchorMin = new Vector2(0.5f, 1f); restartRT.anchorMax = new Vector2(0.5f, 1f);
+    restartRT.pivot     = new Vector2(0.5f, 1f);
+    restartRT.anchoredPosition = new Vector2(0f, -265f);
+    restartRT.sizeDelta        = new Vector2(360f, 90f);
 
     // Hide panel initially — showing it brings everything at once, in correct order
     panel.SetActive(false);
@@ -2767,6 +2823,85 @@ void OnReviveClicked()
         }
     );
 }
+// ── Multiplayer game-over: Replay / Back to Menu ─────────────────────────
+void ShowMPReplayButtons(GameObject panel)
+{
+    // Reuse existing MP overlay if already created
+    if (_mpReplayButton != null)
+    {
+        _mpReplayButton.SetActive(true);
+        _mpReplayButton.transform.SetAsLastSibling();
+        return;
+    }
+
+    _mpReplayButton = new GameObject("MPReplayOverlay");
+    _mpReplayButton.transform.SetParent(panel.transform, false);
+
+    // ── Replay button ─────────────────────────────────────────────────
+    GameObject replayGO = new GameObject("ReplayBtn");
+    replayGO.transform.SetParent(_mpReplayButton.transform, false);
+    Image replayImg = replayGO.AddComponent<Image>();
+    Sprite replaySpr = Resources.Load<Sprite>("btn_battle");   // reuse battle art
+    if (replaySpr != null) { replayImg.sprite = replaySpr; replayImg.preserveAspect = true; }
+    else replayImg.color = new Color(0.1f, 0.45f, 0.85f);
+    Button replayBtn = replayGO.AddComponent<Button>();
+    replayBtn.targetGraphic = replayImg;
+    replayBtn.onClick.AddListener(() =>
+    {
+        // Re-enter MP matchmaking flow
+        var fgm = FindObjectOfType<FirebaseGameManager>();
+        if (fgm != null) fgm.OpenMultiplayerLobby();
+        else RestartGame();
+    });
+    RectTransform replayRT = replayGO.GetComponent<RectTransform>();
+    replayRT.anchorMin = new Vector2(0.5f, 1f); replayRT.anchorMax = new Vector2(0.5f, 1f);
+    replayRT.pivot     = new Vector2(0.5f, 1f);
+    replayRT.anchoredPosition = new Vector2(0f, -155f);
+    replayRT.sizeDelta        = new Vector2(360f, 90f);
+
+    // Label
+    GameObject replayLblGO = new GameObject("ReplayLabel");
+    replayLblGO.transform.SetParent(replayGO.transform, false);
+    TextMeshProUGUI replayLbl = replayLblGO.AddComponent<TextMeshProUGUI>();
+    replayLbl.text = "⚔️  Play Again";
+    replayLbl.fontSize = 22; replayLbl.fontStyle = FontStyles.Bold;
+    replayLbl.color = Color.white; replayLbl.alignment = TextAlignmentOptions.Center;
+    RectTransform replayLblRT = replayLblGO.GetComponent<RectTransform>();
+    replayLblRT.anchorMin = Vector2.zero; replayLblRT.anchorMax = Vector2.one;
+    replayLblRT.offsetMin = replayLblRT.offsetMax = Vector2.zero;
+
+    // ── Back to Menu button ───────────────────────────────────────────
+    GameObject menuGO = new GameObject("MenuBtn");
+    menuGO.transform.SetParent(_mpReplayButton.transform, false);
+    Image menuImg = menuGO.AddComponent<Image>();
+    menuImg.color = new Color(0.18f, 0.18f, 0.28f);
+    Button menuBtn = menuGO.AddComponent<Button>();
+    menuBtn.targetGraphic = menuImg;
+    menuBtn.onClick.AddListener(() =>
+    {
+        _isMultiplayerRound = false;
+        if (_mpReplayButton != null) _mpReplayButton.SetActive(false);
+        var fgm = FindObjectOfType<FirebaseGameManager>();
+        if (fgm != null) fgm.TriggerRestartWithAd();
+        else RestartGame();
+    });
+    RectTransform menuRT = menuGO.GetComponent<RectTransform>();
+    menuRT.anchorMin = new Vector2(0.5f, 1f); menuRT.anchorMax = new Vector2(0.5f, 1f);
+    menuRT.pivot     = new Vector2(0.5f, 1f);
+    menuRT.anchoredPosition = new Vector2(0f, -265f);
+    menuRT.sizeDelta        = new Vector2(360f, 90f);
+
+    GameObject menuLblGO = new GameObject("MenuLabel");
+    menuLblGO.transform.SetParent(menuGO.transform, false);
+    TextMeshProUGUI menuLbl = menuLblGO.AddComponent<TextMeshProUGUI>();
+    menuLbl.text = "Main Menu";
+    menuLbl.fontSize = 20; menuLbl.fontStyle = FontStyles.Bold;
+    menuLbl.color = new Color(0.75f, 0.75f, 0.85f); menuLbl.alignment = TextAlignmentOptions.Center;
+    RectTransform menuLblRT = menuLblGO.GetComponent<RectTransform>();
+    menuLblRT.anchorMin = Vector2.zero; menuLblRT.anchorMax = Vector2.one;
+    menuLblRT.offsetMin = menuLblRT.offsetMax = Vector2.zero;
+}
+
 IEnumerator ResetButtonScale(GameObject obj)
 {
     yield return new WaitForSecondsRealtime(0.1f);
@@ -2928,69 +3063,12 @@ void CreateDailyQuestsPanelUI()
     titleRT.anchoredPosition = new Vector2(0, -40);
     titleRT.sizeDelta = new Vector2(650, 60);
 
-    // ===== CREATE QUEST ITEMS =====
-    // DailyQuestManager initialises in Start(); GameBootstrap runs in Awake() — guard null
-    var quests = DailyQuestManager.Instance != null ? DailyQuestManager.GetDailyQuests() : null;
-    float yOffset = -120;
-    int questCount = 0;
-    foreach (var quest in quests ?? new System.Collections.Generic.List<DailyQuestManager.Quest>())
-    {
-        questCount++;
-        
-        // Quest title
-        GameObject questTitleGO = new GameObject($"Quest{questCount}_Title");
-        questTitleGO.transform.SetParent(questPanelGO.transform, false);
-        TextMeshProUGUI questTitle = questTitleGO.AddComponent<TextMeshProUGUI>();
-        questTitle.text = quest.title;
-        questTitle.alignment = TextAlignmentOptions.Left;
-        questTitle.fontSize = 22;
-        questTitle.fontStyle = FontStyles.Bold;
-        questTitle.color = quest.completed ? Color.green : Color.white;
-
-        RectTransform questTitleRT = questTitleGO.GetComponent<RectTransform>();
-        questTitleRT.anchoredPosition = new Vector2(-300, yOffset);
-        questTitleRT.sizeDelta = new Vector2(600, 40);
-
-        yOffset -= 50;
-
-        // Quest progress
-        GameObject questProgressGO = new GameObject($"Quest{questCount}_Progress");
-        questProgressGO.transform.SetParent(questPanelGO.transform, false);
-        TextMeshProUGUI questProgress = questProgressGO.AddComponent<TextMeshProUGUI>();
-        questProgress.text = $"Progress: {quest.currentProgress}/{quest.targetValue}  |  Reward: {quest.rewardCoins} 🪙";
-        questProgress.alignment = TextAlignmentOptions.Left;
-        questProgress.fontSize = 20;
-        questProgress.color = quest.completed ? new Color(0, 1, 0, 0.9f) : new Color(1, 1, 1, 0.8f);
-
-        RectTransform questProgressRT = questProgressGO.GetComponent<RectTransform>();
-        questProgressRT.anchoredPosition = new Vector2(-300, yOffset);
-        questProgressRT.sizeDelta = new Vector2(600, 35);
-
-        yOffset -= 55;
-
-        // Progress bar background
-        GameObject progressBarBGGO = new GameObject($"Quest{questCount}_ProgressBarBG");
-        progressBarBGGO.transform.SetParent(questPanelGO.transform, false);
-        Image progressBarBG = progressBarBGGO.AddComponent<Image>();
-        progressBarBG.color = new Color(0.2f, 0.2f, 0.2f, 0.5f);
-
-        RectTransform progressBarBGRT = progressBarBGGO.GetComponent<RectTransform>();
-        progressBarBGRT.anchoredPosition = new Vector2(0, yOffset);
-        progressBarBGRT.sizeDelta = new Vector2(600, 25);
-
-        // Progress bar fill
-        float progress = quest.targetValue > 0 ? (float)quest.currentProgress / quest.targetValue : 0;
-        GameObject progressBarGO = new GameObject($"Quest{questCount}_ProgressBar");
-        progressBarGO.transform.SetParent(progressBarBGGO.transform, false);
-        Image progressBar = progressBarGO.AddComponent<Image>();
-        progressBar.color = quest.completed ? new Color(0, 1, 0, 0.8f) : new Color(0.2f, 0.55f, 0.9f, 0.8f);
-
-        RectTransform progressBarRT = progressBarGO.GetComponent<RectTransform>();
-        progressBarRT.anchoredPosition = new Vector2(-300 + (progress * 300), 0);
-        progressBarRT.sizeDelta = new Vector2(progress * 600, 25);
-
-        yOffset -= 40;
-    }
+    // ===== CREATE QUEST CONTENT ROOT =====
+    // Quest rows are NOT built here — DailyQuestManager may not be ready at startup.
+    // They are built fresh each time ShowDailyQuests() is called.
+    GameObject contentRootGO = new GameObject("QuestContentRoot");
+    contentRootGO.transform.SetParent(questPanelGO.transform, false);
+    _questContentRoot = contentRootGO.transform;
 
     // ===== CREATE CLOSE HINT =====
     GameObject closeGO = new GameObject("CloseHint");
@@ -3030,46 +3108,29 @@ void CreateDailyQuestsButton()
     // ===== CREATE BUTTON CONTAINER =====
     GameObject questButtonGO = new GameObject("DailyQuestsButton");
     questButtonGO.transform.SetParent(mainCanvas.transform, false);
-    questButtonGO.transform.SetAsFirstSibling();  // Ensure it's not hidden behind other UI
+    // Do NOT SetAsFirstSibling — that draws it BEHIND everything.
+    // Normal sibling order is fine; ShowDailyQuests() will SetAsLastSibling when panel opens.
     
-    // ===== ADD BUTTON COMPONENT =====
-    Button questBtn = questButtonGO.AddComponent<Button>();
-    Image btnImage = questButtonGO.AddComponent<Image>();
-    
-    // ===== BUTTON STYLING =====
-    // Teal/green so it reads differently from the blue skins button
-    btnImage.color = new Color(0.1f, 0.62f, 0.45f, 0.92f);
+    Image btnImage    = questButtonGO.AddComponent<Image>();
+    Sprite questSpr   = Resources.Load<Sprite>("btn_quest");
+    if (questSpr != null) { btnImage.sprite = questSpr; btnImage.preserveAspect = true; }
+    else btnImage.color = new Color(0.1f, 0.62f, 0.45f, 0.92f);
 
-    // ===== BUTTON POSITIONING =====
-    // Bottom-right corner — mirrors skins button (bottom-left), clear of score UI
-    float btnW    = Screen.width  * 0.28f;
-    float btnH    = Screen.height * 0.07f;
-    float margin  = Screen.width  * 0.03f;
+    Button questBtn = questButtonGO.AddComponent<Button>();
+    questBtn.targetGraphic = btnImage;
+
+    float btnW   = Screen.width  * 0.28f;
+    float btnH   = Screen.height * 0.07f;
+    float margin = Screen.width  * 0.03f;
+    // Coin display occupies bottom-right at y=margin (height=btnH).
+    // Quest button must be ABOVE it: y = margin + btnH + gap(10).
+    float questY = margin + btnH + 10f;
     RectTransform btnRect = questButtonGO.GetComponent<RectTransform>();
     btnRect.anchorMin        = new Vector2(1f, 0f);
     btnRect.anchorMax        = new Vector2(1f, 0f);
     btnRect.pivot            = new Vector2(1f, 0f);
-    btnRect.anchoredPosition = new Vector2(-margin, margin);
+    btnRect.anchoredPosition = new Vector2(-margin, questY);
     btnRect.sizeDelta        = new Vector2(btnW, btnH);
-
-    // ===== ADD TEXT TO BUTTON =====
-    GameObject textGO = new GameObject("Text");
-    textGO.transform.SetParent(questButtonGO.transform, false);
-    TextMeshProUGUI btnText = textGO.AddComponent<TextMeshProUGUI>();
-
-    // ===== TEXT STYLING =====
-    btnText.text = "QUESTS";
-    btnText.fontSize = Screen.height * 0.022f;
-    btnText.fontStyle = FontStyles.Bold;
-    btnText.alignment = TextAlignmentOptions.Center;
-    btnText.color = Color.white;
-    
-    // ===== TEXT POSITIONING (FILL BUTTON) =====
-    RectTransform textRect = textGO.GetComponent<RectTransform>();
-    textRect.anchorMin = Vector2.zero;
-    textRect.anchorMax = Vector2.one;
-    textRect.offsetMin = Vector2.zero;
-    textRect.offsetMax = Vector2.zero;
     
     // ===== ADD CLICK LISTENER WITH TOGGLE =====
     questBtn.onClick.AddListener(() => {
@@ -3089,26 +3150,115 @@ void CreateDailyQuestsButton()
     questBtn.navigation = nav;
     
     Debug.Log("[🎯 DailyQuests] Button created in TOP-RIGHT - Players can now tap to see quests!");
+
+    // ── "?" help button — top-left, replays tutorial ──────────────────────
+    GameObject helpGO = new GameObject("HelpButton");
+    helpGO.transform.SetParent(mainCanvas.transform, false);
+
+    Image helpImg = helpGO.AddComponent<Image>();
+    helpImg.color = new Color(0.15f, 0.45f, 0.85f, 0.85f);
+
+    Button helpBtn = helpGO.AddComponent<Button>();
+    helpBtn.targetGraphic = helpImg;
+    helpBtn.onClick.AddListener(() => OnboardingOverlay.ShowAlways(mainCanvas));
+
+    var helpRT = helpGO.GetComponent<RectTransform>();
+    helpRT.anchorMin        = new Vector2(0f, 1f);
+    helpRT.anchorMax        = new Vector2(0f, 1f);
+    helpRT.pivot            = new Vector2(0f, 1f);
+    helpRT.anchoredPosition = new Vector2(14f, -14f);
+    helpRT.sizeDelta        = new Vector2(52f, 52f);
+
+    var helpLblGO = new GameObject("Label");
+    helpLblGO.transform.SetParent(helpGO.transform, false);
+    var helpTxt = helpLblGO.AddComponent<TMPro.TextMeshProUGUI>();
+    helpTxt.text      = "?";
+    helpTxt.fontSize  = 26;
+    helpTxt.fontStyle = TMPro.FontStyles.Bold;
+    helpTxt.color     = Color.white;
+    helpTxt.alignment = TMPro.TextAlignmentOptions.Center;
+    var helpLblRT = helpLblGO.GetComponent<RectTransform>();
+    helpLblRT.anchorMin = Vector2.zero;
+    helpLblRT.anchorMax = Vector2.one;
+    helpLblRT.offsetMin = helpLblRT.offsetMax = Vector2.zero;
 }
 
 void ShowDailyQuests()
 {
-    // Prevent opening while already open
     if (isQuestPanelOpen) return;
-    
-    // Safety check
-    if (dailyQuestPanel == null || darkOverlay == null)
+    if (dailyQuestPanel == null || darkOverlay == null) { Debug.LogError("[DailyQuests] Panel not initialized"); return; }
+
+    // Rebuild quest rows fresh so progress is always current
+    if (_questContentRoot != null)
     {
-        Debug.LogError("[DailyQuests] Panel not initialized");
-        return;
+        foreach (Transform child in _questContentRoot) Destroy(child.gameObject);
+
+        var quests = DailyQuestManager.Instance != null
+            ? DailyQuestManager.GetDailyQuests()
+            : new System.Collections.Generic.List<DailyQuestManager.Quest>();
+
+        float yOffset = -120f;
+        int idx = 0;
+        foreach (var quest in quests)
+        {
+            idx++;
+
+            var titleGO = new GameObject($"Q{idx}_Title");
+            titleGO.transform.SetParent(_questContentRoot, false);
+            var titleUI = titleGO.AddComponent<TextMeshProUGUI>();
+            titleUI.text = quest.completed ? "✅ " + quest.title : quest.title;
+            titleUI.alignment = TextAlignmentOptions.Left;
+            titleUI.fontSize = 22; titleUI.fontStyle = FontStyles.Bold;
+            titleUI.color = quest.completed ? Color.green : Color.white;
+            var titleRT = titleUI.GetComponent<RectTransform>();
+            titleRT.anchoredPosition = new Vector2(-300, yOffset);
+            titleRT.sizeDelta = new Vector2(600, 40);
+            yOffset -= 46f;
+
+            var progGO = new GameObject($"Q{idx}_Prog");
+            progGO.transform.SetParent(_questContentRoot, false);
+            var progUI = progGO.AddComponent<TextMeshProUGUI>();
+            progUI.text = $"{quest.currentProgress}/{quest.targetValue}  ·  Reward: {quest.rewardCoins} 🪙";
+            progUI.alignment = TextAlignmentOptions.Left;
+            progUI.fontSize = 19;
+            progUI.color = quest.completed ? new Color(0.5f, 1f, 0.5f) : new Color(0.8f, 0.8f, 0.8f);
+            var progRT = progUI.GetComponent<RectTransform>();
+            progRT.anchoredPosition = new Vector2(-300, yOffset);
+            progRT.sizeDelta = new Vector2(600, 32);
+            yOffset -= 38f;
+
+            // Progress bar track
+            var trackGO = new GameObject($"Q{idx}_Track");
+            trackGO.transform.SetParent(_questContentRoot, false);
+            trackGO.AddComponent<Image>().color = new Color(0.15f, 0.15f, 0.15f, 0.6f);
+            var trackRT = trackGO.GetComponent<RectTransform>();
+            trackRT.anchoredPosition = new Vector2(0, yOffset);
+            trackRT.sizeDelta = new Vector2(600, 22);
+
+            // Progress bar fill
+            float pct = quest.targetValue > 0 ? Mathf.Clamp01((float)quest.currentProgress / quest.targetValue) : 0f;
+            var fillGO = new GameObject($"Q{idx}_Fill");
+            fillGO.transform.SetParent(trackGO.transform, false);
+            fillGO.AddComponent<Image>().color = quest.completed ? new Color(0.2f, 0.9f, 0.3f) : new Color(0.2f, 0.55f, 0.9f);
+            var fillRT = fillGO.GetComponent<RectTransform>();
+            fillRT.anchorMin = new Vector2(0f, 0f); fillRT.anchorMax = new Vector2(0f, 1f);
+            fillRT.pivot = new Vector2(0f, 0.5f);
+            fillRT.offsetMin = fillRT.offsetMax = Vector2.zero;
+            fillRT.sizeDelta = new Vector2(600 * pct, 0);
+
+            yOffset -= 46f;
+        }
     }
-    
-    // Show existing panel (toggle visibility)
+
+    // Bring overlay and panel to the very front so they render above game-over panel
+    darkOverlay.transform.SetAsLastSibling();
+    dailyQuestPanel.transform.SetAsLastSibling();
+    // Quest button must still be clickable to close — keep it above overlay
+    if (questButtonGO != null) questButtonGO.transform.SetAsLastSibling();
+
     dailyQuestPanel.SetActive(true);
     darkOverlay.SetActive(true);
     isQuestPanelOpen = true;
-    
-    Debug.Log("[🎯 DailyQuests] Panel shown");
 }
 
 void CloseDailyQuests()

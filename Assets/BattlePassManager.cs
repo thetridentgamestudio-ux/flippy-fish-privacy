@@ -2,255 +2,151 @@ using UnityEngine;
 using System;
 using System.Collections.Generic;
 
-/// <summary>
-/// Battle Pass System — Free + Premium tracks, 30 tiers, seasonal
-/// Tier rewards: cosmetics, coins, premium currency
-/// </summary>
 public class BattlePassManager : MonoBehaviour
 {
     [System.Serializable]
-    public class BattlePassTier
+    public class Reward
     {
-        public int tierNumber; // 1-30
-        public string name;
-        public int xpRequired; // cumulative XP to unlock
-        
-        [System.Serializable]
-        public class Reward
-        {
-            public enum RewardType { Coins, Gems, Skin, Trail, Background }
-            public RewardType type;
-            public int amount; // coins/gems count or cosmetic ID
-            public string cosmetic; // "Trail_Fire", "Skin_Shark", etc
-        }
+        public enum RewardType { Coins, Gems, Skin }
+        public RewardType type;
+        public int    amount;
+        public string cosmetic; // skin ID if type == Skin
+    }
 
-        public Reward freeReward; // all players get this
-        public Reward premiumReward; // premium-track exclusive
-        public bool unlocked;
-        public bool rewardClaimed;
+    [System.Serializable]
+    public class Tier
+    {
+        public int    number;
+        public int    xpRequired;    // cumulative XP to unlock this tier
+        public Reward freeReward;
+        public Reward premiumReward;
+        public bool   unlocked;
+        public bool   claimed;
     }
 
     [System.Serializable]
     public class Season
     {
-        public int seasonNumber;
+        public int    number;
         public string name;
-        public DateTime startDate;
-        public DateTime endDate;
-        public List<BattlePassTier> tiers = new List<BattlePassTier>();
+        public List<Tier> tiers = new List<Tier>();
     }
 
-    private static BattlePassManager instance;
-    public static BattlePassManager Instance => instance; // Expose instance
-    private Season currentSeason;
-    private int playerXP; // cumulative XP this season
-    private bool isPremium; // player owns premium pass
-    private const string BP_SAVE_KEY = "BattlePass";
-    private const string XP_SAVE_KEY = "BattlePassXP";
-    private const string PREMIUM_KEY = "BattlePassPremium";
-    private const int XP_PER_SCORE_POINT = 5; // 1 score point = 5 XP
+    // ── Singleton ────────────────────────────────────────────────────────
+    static BattlePassManager _instance;
+    public static BattlePassManager Instance
+    {
+        get
+        {
+            if (_instance == null) Create();
+            return _instance;
+        }
+    }
+
+    public static void Create()
+    {
+        if (_instance != null) return;
+        var go = new GameObject("BattlePassManager");
+        DontDestroyOnLoad(go);
+        _instance = go.AddComponent<BattlePassManager>();
+        _instance.Init();
+    }
+
+    // ── Data ─────────────────────────────────────────────────────────────
+    Season _season;
+    int    _xp;
+    bool   _isPremium;
+
+    const string KEY_XP      = "BP_XP";
+    const string KEY_PREMIUM = "BP_Premium";
+    const string KEY_CLAIMED = "BP_Claimed_";
 
     void Awake()
     {
-        if (instance == null)
-        {
-            instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
-        else
-            Destroy(gameObject);
+        if (_instance != null && _instance != this) { Destroy(gameObject); return; }
+        _instance = this;
+        DontDestroyOnLoad(gameObject);
+        Init();
     }
 
-    void Start()
+    void Init()
     {
-        LoadBattlePass();
-        CheckSeasonReset();
-        GenerateCurrentSeason();
+        _xp        = PlayerPrefs.GetInt(KEY_XP, 0);
+        _isPremium = PlayerPrefs.GetInt(KEY_PREMIUM, 0) == 1;
+        BuildSeason();
     }
+
+    void BuildSeason()
+    {
+        _season = new Season { number = 1, name = "Coral Reef" };
+        int cumXP = 0;
+        for (int i = 1; i <= 20; i++)
+        {
+            cumXP += 150 + i * 50;
+            bool unlocked = _xp >= cumXP;
+            bool claimed  = PlayerPrefs.GetInt(KEY_CLAIMED + i, 0) == 1;
+            _season.tiers.Add(new Tier
+            {
+                number   = i,
+                xpRequired = cumXP,
+                freeReward    = new Reward { type = Reward.RewardType.Coins, amount = (i % 5 == 0) ? 200 : 75 },
+                premiumReward = (i % 5 == 0)
+                    ? new Reward { type = Reward.RewardType.Gems, amount = 50 }
+                    : new Reward { type = Reward.RewardType.Coins, amount = 150 },
+                unlocked = unlocked,
+                claimed  = claimed
+            });
+        }
+    }
+
+    // ── Public API ───────────────────────────────────────────────────────
+    public static Season GetSeason()    => Instance._season;
+    public static int    GetXP()        => Instance._xp;
+    public static int    GetCurrentTier()
+    {
+        int t = 0;
+        foreach (var tier in Instance._season.tiers)
+            if (tier.unlocked) t = tier.number;
+        return t;
+    }
+    public static bool IsPremium()      => Instance._isPremium;
 
     public static void AddXP(int amount)
     {
-        if (instance == null) return;
-        
-        instance.playerXP += amount;
-        instance.UpdateTierUnlocks();
-        instance.SaveBattlePass();
-        
-        Debug.Log($"Battle Pass: +{amount} XP (Total: {instance.playerXP})");
-    }
-
-    void UpdateTierUnlocks()
-    {
-        foreach (var tier in currentSeason.tiers)
-        {
-            if (!tier.unlocked && playerXP >= tier.xpRequired)
-            {
-                tier.unlocked = true;
-                AnalyticsEvents.LogBattlePassTierUnlocked(tier.tierNumber);
-            }
-        }
+        var mgr = Instance;
+        mgr._xp += amount;
+        PlayerPrefs.SetInt(KEY_XP, mgr._xp);
+        // refresh unlock flags without rebuilding whole season
+        foreach (var t in mgr._season.tiers)
+            if (!t.unlocked && mgr._xp >= t.xpRequired) t.unlocked = true;
+        PlayerPrefs.Save();
     }
 
     public static void ClaimReward(int tierNumber)
     {
-        if (instance == null) return;
-        var tier = instance.currentSeason.tiers.Find(t => t.tierNumber == tierNumber);
-        if (tier == null || tier.rewardClaimed) return;
+        var mgr  = Instance;
+        var tier = mgr._season.tiers.Find(t => t.number == tierNumber);
+        if (tier == null || tier.claimed || !tier.unlocked) return;
 
-        // Award free reward (all players)
-        instance.AwardReward(tier.freeReward);
-
-        // Award premium reward (if player owns pass)
-        if (instance.isPremium)
-            instance.AwardReward(tier.premiumReward);
-
-        tier.rewardClaimed = true;
-        AnalyticsEvents.LogBattlePassRewardClaimed(tierNumber, tier.freeReward?.type.ToString() ?? "none");
-        instance.SaveBattlePass();
-    }
-
-    void AwardReward(BattlePassTier.Reward reward)
-    {
-        if (reward == null) return;
-
-        switch (reward.type)
-        {
-            case BattlePassTier.Reward.RewardType.Coins:
-                SkinManager.AddCoins(reward.amount);
-                break;
-
-            case BattlePassTier.Reward.RewardType.Gems:
-                AddGems(reward.amount);
-                break;
-
-            case BattlePassTier.Reward.RewardType.Skin:
-                UnlockSkin(reward.cosmetic);
-                break;
-
-            case BattlePassTier.Reward.RewardType.Trail:
-                UnlockTrail(reward.cosmetic);
-                break;
-
-            case BattlePassTier.Reward.RewardType.Background:
-                UnlockBackground(reward.cosmetic);
-                break;
-        }
-
-        Debug.Log($"Reward claimed: {reward.type} - {reward.amount}/{reward.cosmetic}");
-    }
-
-    public static void PurchasePremiumPass(int cost = 299) // $2.99
-    {
-        // Integrate with Firebase billing here
-        // For now, simplified:
-        instance.isPremium = true;
-        instance.SaveBattlePass();
-        AnalyticsEvents.LogBattlePassPurchased();
-    }
-
-    public static int GetCurrentTier()
-    {
-        int tier = 1;
-        foreach (var t in instance.currentSeason.tiers)
-        {
-            if (t.unlocked) tier = t.tierNumber;
-            else break;
-        }
-        return tier;
-    }
-
-    public static bool IsPremium() => instance.isPremium;
-
-    void GenerateCurrentSeason()
-    {
-        currentSeason = new Season
-        {
-            seasonNumber = 1,
-            name = "Coral Reef",
-            startDate = DateTime.Now,
-            endDate = DateTime.Now.AddDays(42) // 6 weeks
-        };
-
-        int cumulativeXP = 0;
-
-        for (int i = 1; i <= 30; i++)
-        {
-            int xpForTier = 100 + (i * 50); // scales: tier 1 = 150 XP, tier 30 = 1650 XP
-            cumulativeXP += xpForTier;
-
-            var tier = new BattlePassTier
-            {
-                tierNumber = i,
-                name = $"Tier {i}",
-                xpRequired = cumulativeXP,
-                freeReward = GenerateFreeReward(i),
-                premiumReward = GeneratePremiumReward(i),
-                unlocked = false,
-                rewardClaimed = false
-            };
-
-            currentSeason.tiers.Add(tier);
-        }
-
-        Debug.Log($"Season {currentSeason.seasonNumber} ({currentSeason.name}) generated. Total XP for Tier 30: {cumulativeXP}");
-    }
-
-    BattlePassTier.Reward GenerateFreeReward(int tierNumber)
-    {
-        if (tierNumber % 5 == 0) // every 5 tiers
-            return new BattlePassTier.Reward { type = BattlePassTier.Reward.RewardType.Coins, amount = 200 };
-        else
-            return new BattlePassTier.Reward { type = BattlePassTier.Reward.RewardType.Coins, amount = 100 };
-    }
-
-    BattlePassTier.Reward GeneratePremiumReward(int tierNumber)
-    {
-        if (tierNumber == 10) return new BattlePassTier.Reward { type = BattlePassTier.Reward.RewardType.Skin, cosmetic = "Skin_Shark" };
-        if (tierNumber == 20) return new BattlePassTier.Reward { type = BattlePassTier.Reward.RewardType.Skin, cosmetic = "Skin_Jellyfish" };
-        if (tierNumber == 30) return new BattlePassTier.Reward { type = BattlePassTier.Reward.RewardType.Gems, amount = 1000 };
-        if (tierNumber % 3 == 0) return new BattlePassTier.Reward { type = BattlePassTier.Reward.RewardType.Gems, amount = 50 };
-        return new BattlePassTier.Reward { type = BattlePassTier.Reward.RewardType.Coins, amount = 150 };
-    }
-
-    void AddGems(int amount) => PlayerPrefs.SetInt("Gems", PlayerPrefs.GetInt("Gems", 0) + amount);
-    void UnlockSkin(string skinId) => PlayerPrefs.SetInt($"Skin_{skinId}", 1);
-    void UnlockTrail(string trailId) => PlayerPrefs.SetInt($"Trail_{trailId}", 1);
-    void UnlockBackground(string bgId) => PlayerPrefs.SetInt($"BG_{bgId}", 1);
-
-    void CheckSeasonReset()
-    {
-        // Every 42 days, generate new season
-        if (!PlayerPrefs.HasKey("LastSeasonReset"))
-        {
-            PlayerPrefs.SetString("LastSeasonReset", DateTime.Now.ToString());
-            return;
-        }
-
-        string lastReset = PlayerPrefs.GetString("LastSeasonReset");
-        DateTime last = DateTime.Parse(lastReset);
-        if ((DateTime.Now - last).TotalDays >= 42)
-        {
-            // Reset for new season
-            playerXP = 0;
-            isPremium = false;
-            GenerateCurrentSeason();
-            PlayerPrefs.SetString("LastSeasonReset", DateTime.Now.ToString());
-        }
-    }
-
-    void SaveBattlePass()
-    {
-        PlayerPrefs.SetInt(XP_SAVE_KEY, playerXP);
-        PlayerPrefs.SetInt(PREMIUM_KEY, isPremium ? 1 : 0);
+        Award(tier.freeReward);
+        if (mgr._isPremium) Award(tier.premiumReward);
+        tier.claimed = true;
+        PlayerPrefs.SetInt(KEY_CLAIMED + tierNumber, 1);
         PlayerPrefs.Save();
     }
 
-    void LoadBattlePass()
+    static void Award(Reward r)
     {
-        playerXP = PlayerPrefs.GetInt(XP_SAVE_KEY, 0);
-        isPremium = PlayerPrefs.GetInt(PREMIUM_KEY, 0) == 1;
+        if (r == null) return;
+        if (r.type == Reward.RewardType.Coins) SkinManager.AddCoins(r.amount);
+        else if (r.type == Reward.RewardType.Gems)
+            PlayerPrefs.SetInt("Gems", PlayerPrefs.GetInt("Gems", 0) + r.amount);
     }
 
-    public static Season GetCurrentSeason() => instance.currentSeason;
-    public static int GetPlayerXP() => instance.playerXP;
+    public static void PurchasePremium()
+    {
+        Instance._isPremium = true;
+        PlayerPrefs.SetInt(KEY_PREMIUM, 1);
+        PlayerPrefs.Save();
+    }
 }

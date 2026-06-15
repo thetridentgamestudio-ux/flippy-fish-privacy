@@ -47,6 +47,12 @@ public class MultiplayerManager : MonoBehaviour
     private EventHandler<ValueChangedEventArgs> _roomStateListener;
     private EventHandler<ValueChangedEventArgs> _oppListener;
 
+    // Fired with opponent's name when a match is confirmed, before 3-2-1 starts.
+    public static event System.Action<string> OnMatchFound;
+
+    // Fired when 60s expires and no real player was found — UI should update before bot starts.
+    public static event System.Action OnNoPlayersFound;
+
     // ── Ghost visual ────────────────────────────────────────
     private GameObject     _ghostFish;
     private SpriteRenderer _ghostSR;
@@ -210,6 +216,10 @@ public class MultiplayerManager : MonoBehaviour
 
     IEnumerator CountdownThenPlay()
     {
+        // Give the UI a moment to show the match-found overlay before we take over the screen.
+        OnMatchFound?.Invoke(_oppUsername);
+        yield return new WaitForSecondsRealtime(1.5f);
+
         ShowCountdownText("3");
         yield return new WaitForSecondsRealtime(1f);
         ShowCountdownText("2");
@@ -227,6 +237,9 @@ public class MultiplayerManager : MonoBehaviour
         IsMultiplayerGame = true;
 
         _roomRef.Child("state").SetValueAsync("playing");
+
+        // Stop any solo ghost race that might be replaying — MP has its own ghost fish.
+        GhostRaceManager.Instance?.StopGhostPlayback();
 
         // Boot the game exactly like a solo restart
         GameBootstrap.Instance.StartMultiplayerRound();
@@ -291,12 +304,19 @@ public class MultiplayerManager : MonoBehaviour
     void OnOpponentDied()
     {
         if (State != MPState.Playing) return;
-        // Opponent died — we're still alive, we win!
         State = MPState.Done;
         if (_syncCoroutine != null) StopCoroutine(_syncCoroutine);
         DestroyGhost();
         int myScore = GameBootstrap.Instance?.Score ?? 0;
         ShowResult(won: true, myScore: myScore, oppScore: _opponentScore);
+        // Pause briefly so player can see the win banner, then end the game normally
+        StartCoroutine(EndGameAfterDelay(2f));
+    }
+
+    IEnumerator EndGameAfterDelay(float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay);
+        GameBootstrap.Instance?.TriggerGameOver();
     }
 
     // ──────────────────────────────────────────────────────
@@ -468,10 +488,20 @@ public class MultiplayerManager : MonoBehaviour
             DataSnapshot waiting = t.Result;
             bool foundOpponent = false;
 
+            long now = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
             foreach (var child in waiting.Children)
             {
-                // Don't match with yourself
+                // Don't match with yourself (same session key)
                 if (child.Key == _myMatchId) continue;
+
+                // Skip stale entries older than 2 minutes — they're from crashed/abandoned sessions
+                long.TryParse(child.Child("timestamp").Value?.ToString(), out long ts);
+                if (now - ts > 120)
+                {
+                    _db.Child("matchmaking").Child("waiting").Child(child.Key).RemoveValueAsync();
+                    continue;
+                }
 
                 string oppUsername = child.Child("username").Value?.ToString() ?? "Player";
                 int    sharedSeed  = int.Parse(child.Child("seed").Value?.ToString() ?? "12345");
@@ -609,7 +639,11 @@ public class MultiplayerManager : MonoBehaviour
             _matchListener = null;
         }
 
-        // Start a bot match instead of erroring
+        // Notify UI so it can show a friendly "no players found" message before the bot starts.
+        OnNoPlayersFound?.Invoke();
+
+        // Give the UI 2 seconds to display the message, then start the bot match.
+        yield return new WaitForSecondsRealtime(2f);
         StartBotMatch();
     }
 
@@ -635,15 +669,15 @@ public class MultiplayerManager : MonoBehaviour
         IsHost   = true;
 
         State = MPState.Countdown;
-
-        // Show "all players busy" message during countdown
-        ShowCountdownText("All players busy!\nPlaying vs " + _oppUsername);
         StartCoroutine(BotCountdownThenPlay());
     }
 
     IEnumerator BotCountdownThenPlay()
     {
-        yield return new WaitForSecondsRealtime(2f);
+        // Notify UI — shows match-found overlay then closes panel.
+        OnMatchFound?.Invoke(_oppUsername);
+        yield return new WaitForSecondsRealtime(1.5f);
+
         ShowCountdownText("3");
         yield return new WaitForSecondsRealtime(1f);
         ShowCountdownText("2");
@@ -653,6 +687,8 @@ public class MultiplayerManager : MonoBehaviour
         ShowCountdownText("GO!");
         yield return new WaitForSecondsRealtime(0.5f);
         HideCountdown();
+
+        GhostRaceManager.Instance?.StopGhostPlayback();
 
         UnityEngine.Random.InitState(_seed);
         State = MPState.Playing;
@@ -672,45 +708,51 @@ public class MultiplayerManager : MonoBehaviour
 
     IEnumerator BotSimulation()
     {
-        // Bot survives a random score between 8 and 28 then "dies"
-        int botDeathScore = UnityEngine.Random.Range(8, 29);
+        // Skill-matched death score: bot targets the player's personal best ± variance.
+        // This ensures the match always feels competitive regardless of player level.
+        int pb = PlayerPrefs.GetInt("BestScore", 0);
+        int botDeathScore;
+        if (pb <= 5)
+            // New player: bot dies slightly above their PB so winning feels earned
+            botDeathScore = Mathf.Max(3, pb + UnityEngine.Random.Range(1, 4));
+        else if (pb <= 20)
+            // Developing player: close race, bot might beat or lose to them
+            botDeathScore = pb + UnityEngine.Random.Range(-2, 4);
+        else
+            // Experienced player: bot is a real challenge, dies around their PB
+            botDeathScore = Mathf.Max(10, pb + UnityEngine.Random.Range(-5, 3));
 
         float botY   = 0f;
         float botVel = 0f;
         const float GRAVITY    = -19.62f;
         const float JUMP_FORCE = 10.5f;
 
-        // Tap interval: mimic a mediocre human — tap every 0.45–0.75s
         float nextTapIn = UnityEngine.Random.Range(0.3f, 0.6f);
-        float elapsed   = 0f;
 
         while (State == MPState.Playing)
         {
             float dt = Time.deltaTime;
-            elapsed += dt;
             nextTapIn -= dt;
 
-            // Tap
             if (nextTapIn <= 0f)
             {
                 botVel    = Mathf.Max(botVel, 0f) + JUMP_FORCE;
                 nextTapIn = UnityEngine.Random.Range(0.42f, 0.72f);
             }
 
-            botVel  += GRAVITY * dt;
-            botVel   = Mathf.Clamp(botVel, -14f, 14f);
-            botY    += botVel * dt;
+            botVel += GRAVITY * dt;
+            botVel  = Mathf.Clamp(botVel, -14f, 14f);
+            botY   += botVel * dt;
 
-            // Clamp to playable area so bot never goes off screen
             float halfScreen = Camera.main != null ? Camera.main.orthographicSize - 1f : 10f;
             float groundTop  = GameBootstrap.Instance != null ? GameBootstrap.Instance.groundTop + 0.5f : -9f;
-            if (botY > halfScreen)  { botY = halfScreen;  botVel = -2f; }
-            if (botY < groundTop)   { botY = groundTop;   botVel = 0f;  }
+            if (botY > halfScreen) { botY = halfScreen; botVel = -2f; }
+            if (botY < groundTop)  { botY = groundTop;  botVel = 0f;  }
 
             _ghostTargetY  = botY;
             _opponentScore = Mathf.Min(GameBootstrap.Instance?.Score ?? 0, botDeathScore);
 
-            // Bot dies when real player reaches its death score
+            // Bot dies the moment player passes its death score
             if ((GameBootstrap.Instance?.Score ?? 0) >= botDeathScore)
             {
                 _opponentAlive = false;

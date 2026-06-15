@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: fdff7018e634b4524ace3f8aa8928ec7
+guid: a2b1d5fe137c24e6fba8a2dd923b0aaa
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 6588071704097462030
-    second: SoundOff5_0
+      213: -8822918435235205972
+    second: btn_revive_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -113,13 +113,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: SoundOff5_0
+      name: btn_revive_0
       rect:
         serializedVersion: 2
-        x: 221
-        y: 221
-        width: 1605
-        height: 1594
+        x: 191
+        y: 631
+        width: 1666
+        height: 819
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -128,8 +128,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: e07188d4f488d6b50800000000000000
-      internalID: 6588071704097462030
+      spriteID: cac6f81dd62be8580800000000000000
+      internalID: -8822918435235205972
       vertices: []
       indices: 
       edges: []
@@ -148,7 +148,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      SoundOff5_0: 6588071704097462030
+      btn_revive_0: -8822918435235205972
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

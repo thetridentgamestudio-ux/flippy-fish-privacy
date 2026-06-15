@@ -26,23 +26,35 @@ public class DailyQuestManager : MonoBehaviour
     private const string QUEST_SAVE_KEY = "DailyQuests";
     private const string LAST_RESET_KEY = "LastQuestReset";
 
-    void Awake()
+    // Auto-create so any script can call DailyQuestManager.Create() safely
+    public static void Create()
     {
-        if (instance == null)
-        {
-            instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
-        else
-            Destroy(gameObject);
+        if (instance != null) return;
+        var go = new GameObject("DailyQuestManager");
+        DontDestroyOnLoad(go);
+        instance = go.AddComponent<DailyQuestManager>();
+        instance.Init();
     }
 
-    void Start()
+    void Awake()
     {
+        if (instance != null && instance != this) { Destroy(gameObject); return; }
+        instance = this;
+        DontDestroyOnLoad(gameObject);
+        Init();
+    }
+
+    void Start() { } // Init() already called in Awake/Create
+
+    void Init()
+    {
+        if (_initialised) return;
+        _initialised = true;
         LoadQuests();
         CheckDailyReset();
-        GenerateTodaysQuests();
+        if (dailyQuests.Count == 0) GenerateTodaysQuests();
     }
+    bool _initialised;
 
     public static void GenerateTodaysQuests()
     {
@@ -95,25 +107,46 @@ public class DailyQuestManager : MonoBehaviour
     public static void UpdateQuestProgress(Quest.QuestType type, int value)
     {
         if (instance == null) return;
+        bool anyChanged = false;
 
         foreach (var quest in instance.dailyQuests)
         {
-            if (quest.type == type && !quest.completed)
-            {
-                quest.currentProgress = Mathf.Min(quest.currentProgress + value, quest.targetValue);
-                if (quest.currentProgress >= quest.targetValue)
-                {
-                    quest.completed = true;
-                    SkinManager.AddCoins(quest.rewardCoins);
-                    AnalyticsEvents.LogQuestCompleted(quest.id, quest.rewardCoins);
+            if (quest.type != type || quest.completed) continue;
 
-                    bool allDone = instance.dailyQuests.TrueForAll(q => q.completed);
-                    if (allDone)
-                        AnalyticsEvents.LogAllDailyQuestsCompleted(GetTotalQuestReward());
+            // ScoreGoal / ReachDifficulty: track best single-run score (take max, not sum)
+            // CollectCoins: cumulative across all runs today
+            int newProgress = (type == Quest.QuestType.CollectCoins)
+                ? quest.currentProgress + value
+                : Mathf.Max(quest.currentProgress, value);
+
+            newProgress = Mathf.Min(newProgress, quest.targetValue);
+            if (newProgress == quest.currentProgress) continue;
+
+            quest.currentProgress = newProgress;
+            anyChanged = true;
+
+            if (quest.currentProgress >= quest.targetValue)
+            {
+                quest.completed = true;
+                SkinManager.AddCoins(quest.rewardCoins);
+                AnalyticsEvents.LogQuestCompleted(quest.id, quest.rewardCoins);
+
+                // Show completion toast so player knows they earned coins
+                GameBootstrap.Instance?.ShowToast(
+                    $"Quest done!  {quest.title}  +{quest.rewardCoins} 🪙",
+                    new Color(0.15f, 0.85f, 0.45f));
+
+                bool allDone = instance.dailyQuests.TrueForAll(q => q.completed);
+                if (allDone)
+                {
+                    AnalyticsEvents.LogAllDailyQuestsCompleted(GetTotalQuestReward());
+                    GameBootstrap.Instance?.ShowToast(
+                        "All daily quests complete! 🎉", new Color(1f, 0.82f, 0.1f));
                 }
             }
         }
-        instance.SaveQuests();
+
+        if (anyChanged) instance.SaveQuests();
     }
 
     public static List<Quest> GetDailyQuests() => instance.dailyQuests;

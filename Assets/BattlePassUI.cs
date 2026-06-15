@@ -3,283 +3,383 @@ using UnityEngine.UI;
 using TMPro;
 
 /// <summary>
-/// Battle Pass UI — shows tiers, XP progress, rewards
-/// Accessible from main menu
+/// Battle Pass UI — fullscreen overlay, scrollable tier list, real data.
+/// Call BattlePassUI.Show() from anywhere. Safe to call before BattlePassManager
+/// exists on scene — it self-initialises.
 /// </summary>
-public class BattlePassUI : MonoBehaviour
+public static class BattlePassUI
 {
-    private static GameObject panel;
-    private static Canvas mainCanvas;
+    static GameObject _root;
+    static TMP_FontAsset _font;
 
-    public static void ShowBattlePassPanel()
+    // ── Colours ──────────────────────────────────────────────────────────
+    static readonly Color BG_DARK    = new Color(0.05f, 0.10f, 0.18f, 0.98f);
+    static readonly Color BG_CARD    = new Color(0.09f, 0.17f, 0.28f, 1.00f);
+    static readonly Color BG_LOCKED  = new Color(0.12f, 0.12f, 0.14f, 1.00f);
+    static readonly Color COL_GOLD   = new Color(1.00f, 0.82f, 0.10f, 1.00f);
+    static readonly Color COL_GREEN  = new Color(0.18f, 0.85f, 0.38f, 1.00f);
+    static readonly Color COL_BLUE   = new Color(0.28f, 0.62f, 1.00f, 1.00f);
+    static readonly Color COL_DIM    = new Color(0.55f, 0.62f, 0.70f, 1.00f);
+    static readonly Color COL_WHITE  = Color.white;
+
+    // ── Entry point ──────────────────────────────────────────────────────
+    public static void Show()
     {
-        if (panel != null)
+        // Guarantee manager exists and data is ready before we touch it
+        BattlePassManager.Create();
+
+        Canvas canvas = Object.FindObjectOfType<Canvas>();
+        if (canvas == null) return;
+
+        _font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+
+        if (_root != null)
         {
-            panel.SetActive(true);
-            return;
+            // Rebuild content in case XP / claim state changed
+            Object.Destroy(_root);
+            _root = null;
         }
 
-        mainCanvas = FindObjectOfType<Canvas>();
-        if (mainCanvas == null) return;
+        Build(canvas);
+    }
 
-        // Create main panel
-        panel = new GameObject("BattlePassPanel");
-        panel.transform.SetParent(mainCanvas.transform, false);
+    // ── Build ────────────────────────────────────────────────────────────
+    static void Build(Canvas canvas)
+    {
+        // Root — fullscreen
+        _root = NewGO("BattlePassRoot", canvas.transform);
+        Stretch(_root);
+        _root.AddComponent<Image>().color = BG_DARK;
 
-        Image bg = panel.AddComponent<Image>();
-        bg.color = new Color(0.05f, 0.2f, 0.4f, 0.95f);
+        // Must be on top of all other canvas children so close button receives events
+        _root.transform.SetAsLastSibling();
 
-        RectTransform rt = panel.GetComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = Vector2.zero;
-        rt.offsetMax = Vector2.zero;
+        // ── Header zone: starts at 5% from top (safe area) to 26% ───────
+        // Keeps content away from phone notch/status bar
+        BuildHeader(_root);
 
-        // Header: Season name + XP progress
-        CreateHeader(panel);
+        // ── Scrollable tier list (26% – 90%) ────────────────────────────
+        BuildTierScroll(_root);
 
-        // Tier list (scrollable)
-        CreateTierList(panel);
-
-        // Close button
-        CreateCloseButton(panel);
-
-        // Premium pass button (if not owned)
+        // ── Footer / Go Premium button (bottom 10%) ──────────────────────
         if (!BattlePassManager.IsPremium())
-            CreatePremiumButton(panel);
+            BuildPremiumFooter(_root);
+
+        // ── Close button ─────────────────────────────────────────────────
+        BuildCloseButton(_root);
     }
 
-    static void CreateHeader(GameObject parent)
+    // ── Header ───────────────────────────────────────────────────────────
+    static void BuildHeader(GameObject parent)
     {
-        var season = BattlePassManager.GetCurrentSeason();
-        int currentTier = BattlePassManager.GetCurrentTier();
-        int xp = BattlePassManager.GetPlayerXP();
+        var season    = BattlePassManager.GetSeason();
+        int tier      = BattlePassManager.GetCurrentTier();
+        int xp        = BattlePassManager.GetXP();
 
-        GameObject headerGO = new GameObject("Header");
-        headerGO.transform.SetParent(parent.transform, false);
+        // Header background strip — starts at 5% from top to leave safe-area room
+        var hdr = NewGO("Header", parent.transform);
+        var hdrRT = hdr.AddComponent<RectTransform>();
+        hdrRT.anchorMin = new Vector2(0f, 0.76f);
+        hdrRT.anchorMax = new Vector2(1f, 0.95f);
+        hdrRT.offsetMin = hdrRT.offsetMax = Vector2.zero;
+        hdr.AddComponent<Image>().color = new Color(0.04f, 0.08f, 0.14f, 1f);
 
-        TextMeshProUGUI seasonText = headerGO.AddComponent<TextMeshProUGUI>();
-        seasonText.text = $"Season {season.seasonNumber}: {season.name}";
-        seasonText.alignment = TextAlignmentOptions.TopLeft;
-        seasonText.fontSize = 24;
-        seasonText.color = Color.yellow;
+        // Season title — within header, leave room for close button (80px) on right
+        var title = MakeTMP("SeasonTitle", hdr.transform,
+            $"Season {season.number}  ·  {season.name}",
+            32, FontStyles.Bold, COL_GOLD);
+        var tRT = title.GetComponent<RectTransform>();
+        tRT.anchorMin = new Vector2(0f, 0.52f); tRT.anchorMax = new Vector2(1f, 1.00f);
+        tRT.offsetMin = new Vector2(24, 0); tRT.offsetMax = new Vector2(-90, -10);
 
-        RectTransform headerRT = headerGO.GetComponent<RectTransform>();
-        headerRT.anchoredPosition = new Vector2(10, -30);
-        headerRT.sizeDelta = new Vector2(300, 50);
+        // Tier label
+        var tierLbl = MakeTMP("TierLabel", hdr.transform,
+            tier == 0 ? "Tier 0  ·  No XP yet" : $"Tier {tier}  ·  {xp} XP earned",
+            22, FontStyles.Normal, COL_DIM);
+        var tlRT = tierLbl.GetComponent<RectTransform>();
+        tlRT.anchorMin = new Vector2(0f, 0.28f); tlRT.anchorMax = new Vector2(1f, 0.54f);
+        tlRT.offsetMin = new Vector2(24, 0); tlRT.offsetMax = new Vector2(-24, 0);
 
-        // XP bar
-        GameObject xpBarGO = new GameObject("XPBar");
-        xpBarGO.transform.SetParent(parent.transform, false);
+        // XP bar background
+        var barBG = NewGO("XPBarBG", hdr.transform);
+        var barBGRT = barBG.AddComponent<RectTransform>();
+        barBGRT.anchorMin = new Vector2(0.04f, 0.07f); barBGRT.anchorMax = new Vector2(0.96f, 0.24f);
+        barBGRT.offsetMin = barBGRT.offsetMax = Vector2.zero;
+        barBG.AddComponent<Image>().color = new Color(0.08f, 0.12f, 0.20f, 1f);
 
-        Image xpBG = xpBarGO.AddComponent<Image>();
-        xpBG.color = new Color(0.1f, 0.1f, 0.1f);
+        // XP bar fill
+        // Calculate fill: find next tier's XP requirement
+        var tiers    = season.tiers;
+        int prevXP   = tier == 0 ? 0 : (tier <= tiers.Count ? tiers[tier - 1].xpRequired : 0);
+        int nextXP   = tier < tiers.Count ? tiers[tier].xpRequired : prevXP;
+        float fill   = (nextXP - prevXP) > 0 ? Mathf.Clamp01((float)(xp - prevXP) / (nextXP - prevXP)) : 1f;
 
-        RectTransform xpRT = xpBarGO.GetComponent<RectTransform>();
-        xpRT.anchoredPosition = new Vector2(0, -100);
-        xpRT.sizeDelta = new Vector2(400, 30);
-
-        // XP fill
-        GameObject xpFillGO = new GameObject("Fill");
-        xpFillGO.transform.SetParent(xpBarGO.transform, false);
-        Image xpFill = xpFillGO.AddComponent<Image>();
-        xpFill.color = new Color(0.2f, 1f, 0.4f);
-
-        RectTransform xpFillRT = xpFillGO.GetComponent<RectTransform>();
-        xpFillRT.anchorMin = new Vector2(0, 0);
-        xpFillRT.anchorMax = new Vector2(0, 1);
-        xpFillRT.offsetMin = Vector2.zero;
-        xpFillRT.offsetMax = Vector2.zero;
-        float fillPercent = Mathf.Min(xp / 10000f, 1f); // Max 10000 XP = 100%
-        xpFillRT.offsetMax = new Vector2(400 * fillPercent, 0);
-
-        // XP text
-        GameObject xpTextGO = new GameObject("XPText");
-        xpTextGO.transform.SetParent(xpBarGO.transform, false);
-        TextMeshProUGUI xpText = xpTextGO.AddComponent<TextMeshProUGUI>();
-        xpText.text = $"Tier {currentTier}: {xp} XP";
-        xpText.alignment = TextAlignmentOptions.Center;
-        xpText.fontSize = 14;
-        xpText.color = Color.white;
-
-        RectTransform xpTextRT = xpTextGO.GetComponent<RectTransform>();
-        xpTextRT.anchorMin = Vector2.zero;
-        xpTextRT.anchorMax = Vector2.one;
-        xpTextRT.offsetMin = Vector2.zero;
-        xpTextRT.offsetMax = Vector2.zero;
+        var barFill = NewGO("XPFill", barBG.transform);
+        var barFillRT = barFill.AddComponent<RectTransform>();
+        barFillRT.anchorMin = Vector2.zero;
+        barFillRT.anchorMax = new Vector2(fill, 1f);
+        barFillRT.offsetMin = barFillRT.offsetMax = Vector2.zero;
+        barFill.AddComponent<Image>().color = COL_GREEN;
     }
 
-    static void CreateTierList(GameObject parent)
+    // ── Tier scroll ───────────────────────────────────────────────────────
+    static void BuildTierScroll(GameObject parent)
     {
-        var season = BattlePassManager.GetCurrentSeason();
+        float footerHeight = BattlePassManager.IsPremium() ? 0.00f : 0.10f;
 
-        GameObject listGO = new GameObject("TierList");
-        listGO.transform.SetParent(parent.transform, false);
+        // ScrollRect viewport — sits between footer and header
+        var view = NewGO("TierScrollView", parent.transform);
+        var viewRT = view.AddComponent<RectTransform>();
+        viewRT.anchorMin = new Vector2(0f, footerHeight);
+        viewRT.anchorMax = new Vector2(1f, 0.76f);
+        viewRT.offsetMin = viewRT.offsetMax = Vector2.zero;
 
-        ScrollRect scrollRect = listGO.AddComponent<ScrollRect>();
-        Image scrollBG = listGO.AddComponent<Image>();
-        scrollBG.color = new Color(0, 0, 0, 0);
+        Image viewMask = view.AddComponent<Image>();
+        viewMask.color = Color.clear;
+        view.AddComponent<Mask>().showMaskGraphic = false;
 
-        RectTransform listRT = listGO.GetComponent<RectTransform>();
-        listRT.anchoredPosition = new Vector2(0, -200);
-        listRT.sizeDelta = new Vector2(400, 400);
+        ScrollRect scroll = view.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.vertical   = true;
+        scroll.scrollSensitivity = 30f;
 
-        // Content area
-        GameObject contentGO = new GameObject("Content");
-        contentGO.transform.SetParent(listGO.transform, false);
+        // Content container
+        var content = NewGO("Content", view.transform);
+        var contentRT = content.AddComponent<RectTransform>();
+        contentRT.anchorMin = new Vector2(0f, 1f);
+        contentRT.anchorMax = new Vector2(1f, 1f);
+        contentRT.pivot     = new Vector2(0.5f, 1f);
+        contentRT.offsetMin = contentRT.offsetMax = Vector2.zero;
 
-        VerticalLayoutGroup vlg = contentGO.AddComponent<VerticalLayoutGroup>();
-        vlg.spacing = 5;
+        var vlg = content.AddComponent<VerticalLayoutGroup>();
+        vlg.padding           = new RectOffset(16, 16, 12, 12);
+        vlg.spacing           = 10;
+        vlg.childAlignment    = TextAnchor.UpperCenter;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = false;
+        vlg.childForceExpandWidth  = true;
         vlg.childForceExpandHeight = false;
 
-        RectTransform contentRT = contentGO.GetComponent<RectTransform>();
-        contentRT.anchorMin = new Vector2(0, 1);
-        contentRT.anchorMax = new Vector2(1, 1);
-        contentRT.pivot = new Vector2(0.5f, 1);
-        contentRT.offsetMin = Vector2.zero;
-        contentRT.offsetMax = Vector2.zero;
-        contentRT.sizeDelta = new Vector2(400, season.tiers.Count * 50);
+        var csf = content.AddComponent<ContentSizeFitter>();
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-        scrollRect.content = contentRT;
+        scroll.content = contentRT;
 
-        // Create tier items
-        foreach (var tier in season.tiers)
-        {
-            CreateTierItem(contentGO, tier);
-        }
+        // Column header
+        BuildColumnHeader(content);
+
+        // Tier rows
+        var season = BattlePassManager.GetSeason();
+        foreach (var t in season.tiers)
+            BuildTierRow(content, t);
     }
 
-    static void CreateTierItem(GameObject parent, BattlePassManager.BattlePassTier tier)
+    static void BuildColumnHeader(GameObject parent)
     {
-        GameObject itemGO = new GameObject($"Tier_{tier.tierNumber}");
-        itemGO.transform.SetParent(parent.transform, false);
+        var row = NewGO("ColHeader", parent.transform);
+        row.AddComponent<LayoutElement>().preferredHeight = 36;
+        row.AddComponent<Image>().color = new Color(0.04f, 0.08f, 0.14f, 0.8f);
 
-        Image itemBG = itemGO.AddComponent<Image>();
-        itemBG.color = tier.unlocked ? new Color(0.1f, 0.5f, 0.2f) : new Color(0.3f, 0.3f, 0.3f);
+        var hGrid = row.AddComponent<HorizontalLayoutGroup>();
+        hGrid.childAlignment    = TextAnchor.MiddleLeft;
+        hGrid.childControlHeight = true;
+        hGrid.childControlWidth  = false;
+        hGrid.childForceExpandHeight = true;
 
-        RectTransform itemRT = itemGO.GetComponent<RectTransform>();
-        itemRT.sizeDelta = new Vector2(360, 45);
+        MakeHeaderCell(row.transform, "TIER",    80,  TextAlignmentOptions.Center);
+        MakeHeaderCell(row.transform, "FREE",    0,   TextAlignmentOptions.Center, true);
+        MakeHeaderCell(row.transform, "PREMIUM", 110, TextAlignmentOptions.Center);
+        MakeHeaderCell(row.transform, "",        80,  TextAlignmentOptions.Center);
+    }
 
-        // Tier number
-        GameObject numGO = new GameObject("Number");
-        numGO.transform.SetParent(itemGO.transform, false);
-        TextMeshProUGUI numText = numGO.AddComponent<TextMeshProUGUI>();
-        numText.text = $"Tier {tier.tierNumber}";
-        numText.fontSize = 16;
-        numText.color = Color.white;
+    static void MakeHeaderCell(Transform parent, string text, float width, TextAlignmentOptions align, bool flex = false)
+    {
+        var cell = NewGO("H_" + text, parent);
+        var le   = cell.AddComponent<LayoutElement>();
+        if (flex) le.flexibleWidth = 1; else le.preferredWidth = width;
+        var tmp = MakeTMP(text, cell.transform, text, 18, FontStyles.Bold, COL_DIM);
+        Stretch(tmp.gameObject);
+        tmp.alignment = align;
+    }
 
-        RectTransform numRT = numGO.GetComponent<RectTransform>();
-        numRT.anchoredPosition = new Vector2(-150, 0);
-        numRT.sizeDelta = new Vector2(80, 45);
+    static void BuildTierRow(GameObject parent, BattlePassManager.Tier tier)
+    {
+        var row = NewGO($"Tier{tier.number}", parent.transform);
+        var le  = row.AddComponent<LayoutElement>();
+        le.preferredHeight = 64;
 
-        // Reward preview
-        GameObject rewardGO = new GameObject("Reward");
-        rewardGO.transform.SetParent(itemGO.transform, false);
-        TextMeshProUGUI rewardText = rewardGO.AddComponent<TextMeshProUGUI>();
-        rewardText.text = $"Free: {tier.freeReward.amount} coins";
-        rewardText.fontSize = 12;
-        rewardText.color = Color.yellow;
+        row.AddComponent<Image>().color = tier.unlocked ? BG_CARD : BG_LOCKED;
 
-        RectTransform rewardRT = rewardGO.GetComponent<RectTransform>();
-        rewardRT.anchoredPosition = new Vector2(50, 0);
-        rewardRT.sizeDelta = new Vector2(150, 45);
+        var hGrid = row.AddComponent<HorizontalLayoutGroup>();
+        hGrid.childAlignment     = TextAnchor.MiddleLeft;
+        hGrid.childControlHeight = true;
+        hGrid.childControlWidth  = false;
+        hGrid.childForceExpandHeight = true;
+        hGrid.padding = new RectOffset(0, 4, 0, 0);
 
-        // Claim button (if unlocked and not claimed)
-        if (tier.unlocked && !tier.rewardClaimed)
+        // Tier number column
+        var numCell = NewGO("Num", row.transform);
+        numCell.AddComponent<LayoutElement>().preferredWidth = 80;
+        var numTmp = MakeTMP("T", numCell.transform, tier.number.ToString(), 28, FontStyles.Bold,
+            tier.unlocked ? COL_GOLD : COL_DIM);
+        Stretch(numTmp.gameObject);
+        numTmp.alignment = TextAlignmentOptions.Center;
+
+        // Free reward column
+        var freeCell = NewGO("Free", row.transform);
+        freeCell.AddComponent<LayoutElement>().flexibleWidth = 1;
+        string freeStr = RewardStr(tier.freeReward);
+        var freeTmp = MakeTMP("FR", freeCell.transform, freeStr, 20, FontStyles.Normal,
+            tier.unlocked ? COL_WHITE : COL_DIM);
+        Stretch(freeTmp.gameObject);
+        freeTmp.alignment = TextAlignmentOptions.Center;
+
+        // Premium reward column
+        var premCell = NewGO("Prem", row.transform);
+        premCell.AddComponent<LayoutElement>().preferredWidth = 110;
+        string premStr = BattlePassManager.IsPremium() ? RewardStr(tier.premiumReward) : "🔒  Premium";
+        var premTmp = MakeTMP("PR", premCell.transform, premStr, 18, FontStyles.Normal,
+            BattlePassManager.IsPremium() ? COL_GOLD : COL_DIM);
+        Stretch(premTmp.gameObject);
+        premTmp.alignment = TextAlignmentOptions.Center;
+
+        // Action column
+        var actCell = NewGO("Act", row.transform);
+        actCell.AddComponent<LayoutElement>().preferredWidth = 80;
+
+        if (tier.unlocked && !tier.claimed)
         {
-            GameObject claimGO = new GameObject("ClaimBtn");
-            claimGO.transform.SetParent(itemGO.transform, false);
-
-            Image claimImg = claimGO.AddComponent<Image>();
-            claimImg.color = new Color(0.2f, 1f, 0.4f);
-
-            Button claimBtn = claimGO.AddComponent<Button>();
-            claimBtn.onClick.AddListener(() =>
+            var claimBtn = NewGO("ClaimBtn", actCell.transform);
+            Stretch(claimBtn, 8, 10);
+            var img      = claimBtn.AddComponent<Image>();
+            Sprite claimSpr = Resources.Load<Sprite>("btn_claim");
+            if (claimSpr != null) { img.sprite = claimSpr; img.preserveAspect = true; }
+            else img.color = COL_GREEN;
+            var btn = claimBtn.AddComponent<Button>();
+            btn.targetGraphic = img;
+            int capturedNum = tier.number;
+            btn.onClick.AddListener(() =>
             {
-                BattlePassManager.ClaimReward(tier.tierNumber);
-                Destroy(itemGO);
+                BattlePassManager.ClaimReward(capturedNum);
+                img.color = COL_DIM;
+                btn.interactable = false;
+                var lbl = claimBtn.GetComponentInChildren<TextMeshProUGUI>();
+                if (lbl) lbl.text = "✓";
             });
-
-            RectTransform claimRT = claimGO.GetComponent<RectTransform>();
-            claimRT.anchoredPosition = new Vector2(150, 0);
-            claimRT.sizeDelta = new Vector2(60, 35);
-
-            GameObject claimTextGO = new GameObject("Text");
-            claimTextGO.transform.SetParent(claimGO.transform, false);
-            TextMeshProUGUI claimText = claimTextGO.AddComponent<TextMeshProUGUI>();
-            claimText.text = "CLAIM";
-            claimText.fontSize = 10;
-            claimText.color = Color.white;
-
-            RectTransform claimTextRT = claimTextGO.GetComponent<RectTransform>();
-            claimTextRT.anchorMin = Vector2.zero;
-            claimTextRT.anchorMax = Vector2.one;
-            claimTextRT.offsetMin = Vector2.zero;
-            claimTextRT.offsetMax = Vector2.zero;
+        }
+        else if (tier.claimed)
+        {
+            var doneTmp = MakeTMP("Done", actCell.transform, "✓", 26, FontStyles.Bold, COL_GREEN);
+            Stretch(doneTmp.gameObject);
+            doneTmp.alignment = TextAlignmentOptions.Center;
+        }
+        else
+        {
+            var lockTmp = MakeTMP("Lock", actCell.transform, "🔒", 22, FontStyles.Normal, COL_DIM);
+            Stretch(lockTmp.gameObject);
+            lockTmp.alignment = TextAlignmentOptions.Center;
         }
     }
 
-    static void CreateCloseButton(GameObject parent)
+    static string RewardStr(BattlePassManager.Reward r)
     {
-        GameObject closeGO = new GameObject("CloseButton");
-        closeGO.transform.SetParent(parent.transform, false);
-
-        Image closeBG = closeGO.AddComponent<Image>();
-        closeBG.color = new Color(0.8f, 0.2f, 0.2f);
-
-        Button closeBtn = closeGO.AddComponent<Button>();
-        closeBtn.onClick.AddListener(() => panel.SetActive(false));
-
-        RectTransform closeRT = closeGO.GetComponent<RectTransform>();
-        closeRT.anchoredPosition = new Vector2(0, 30);
-        closeRT.sizeDelta = new Vector2(150, 50);
-
-        GameObject closeTextGO = new GameObject("Text");
-        closeTextGO.transform.SetParent(closeGO.transform, false);
-        TextMeshProUGUI closeText = closeTextGO.AddComponent<TextMeshProUGUI>();
-        closeText.text = "CLOSE";
-        closeText.fontSize = 16;
-        closeText.color = Color.white;
-
-        RectTransform closeTextRT = closeTextGO.GetComponent<RectTransform>();
-        closeTextRT.anchorMin = Vector2.zero;
-        closeTextRT.anchorMax = Vector2.one;
-        closeTextRT.offsetMin = Vector2.zero;
-        closeTextRT.offsetMax = Vector2.zero;
+        if (r == null) return "—";
+        return r.type switch
+        {
+            BattlePassManager.Reward.RewardType.Coins => $"🪙 {r.amount}",
+            BattlePassManager.Reward.RewardType.Gems  => $"💎 {r.amount}",
+            BattlePassManager.Reward.RewardType.Skin  => $"🐠 {r.cosmetic?.Replace("Skin_", "")}",
+            _ => "—"
+        };
     }
 
-    static void CreatePremiumButton(GameObject parent)
+    // ── Premium footer ────────────────────────────────────────────────────
+    static void BuildPremiumFooter(GameObject parent)
     {
-        GameObject premiumGO = new GameObject("PremiumButton");
-        premiumGO.transform.SetParent(parent.transform, false);
+        var footer = NewGO("PremiumFooter", parent.transform);
+        var fRT    = footer.AddComponent<RectTransform>();
+        fRT.anchorMin = new Vector2(0f, 0f);
+        fRT.anchorMax = new Vector2(1f, 0.10f);
+        fRT.offsetMin = fRT.offsetMax = Vector2.zero;
+        footer.AddComponent<Image>().color = new Color(0.10f, 0.06f, 0.02f, 1f);
 
-        Image premiumBG = premiumGO.AddComponent<Image>();
-        premiumBG.color = new Color(1f, 0.85f, 0.2f);
-
-        Button premiumBtn = premiumGO.AddComponent<Button>();
-        premiumBtn.onClick.AddListener(() =>
+        var premBtn = NewGO("GoPremium", footer.transform);
+        Stretch(premBtn, 20, 8);
+        var img     = premBtn.AddComponent<Image>();
+        Sprite spr  = Resources.Load<Sprite>("btn_premium");
+        if (spr != null) { img.sprite = spr; img.preserveAspect = true; }
+        else img.color = COL_GOLD;
+        var btn = premBtn.AddComponent<Button>();
+        btn.targetGraphic = img;
+        btn.onClick.AddListener(() =>
         {
-            // Trigger purchase flow (Firebase billing)
-            BattlePassManager.PurchasePremiumPass();
-            Destroy(premiumGO);
+            BattlePassManager.PurchasePremium();
+            // Rebuild panel to show premium rewards
+            Show();
         });
 
-        RectTransform premiumRT = premiumGO.GetComponent<RectTransform>();
-        premiumRT.anchoredPosition = new Vector2(0, -420);
-        premiumRT.sizeDelta = new Vector2(250, 60);
+        var lbl = MakeTMP("PremLbl", premBtn.transform,
+            "⭐  GO PREMIUM  —  Unlock all rewards", 22, FontStyles.Bold, new Color(0.08f, 0.04f, 0f));
+        Stretch(lbl.gameObject);
+        lbl.alignment = TextAlignmentOptions.Center;
+    }
 
-        GameObject premiumTextGO = new GameObject("Text");
-        premiumTextGO.transform.SetParent(premiumGO.transform, false);
-        TextMeshProUGUI premiumText = premiumTextGO.AddComponent<TextMeshProUGUI>();
-        premiumText.text = "UNLOCK PREMIUM\n$2.99";
-        premiumText.alignment = TextAlignmentOptions.Center;
-        premiumText.fontSize = 16;
-        premiumText.color = Color.black;
+    // ── Close button ─────────────────────────────────────────────────────
+    static void BuildCloseButton(GameObject parent)
+    {
+        var closeBtn = NewGO("CloseBtn", parent.transform);
+        var cRT      = closeBtn.AddComponent<RectTransform>();
+        // Anchor to header area top-right: header goes from 0.95 to 0.76 of screen.
+        // Close button anchored at (1, 0.95) — top-right of header zone — pushed in by safe margin.
+        cRT.anchorMin        = new Vector2(1f, 0.95f);
+        cRT.anchorMax        = new Vector2(1f, 0.95f);
+        cRT.pivot            = new Vector2(1f, 1f);
+        cRT.anchoredPosition = new Vector2(-14f, 0f);  // 14px from right edge, at header top
+        cRT.sizeDelta        = new Vector2(70f, 70f);
 
-        RectTransform premiumTextRT = premiumTextGO.GetComponent<RectTransform>();
-        premiumTextRT.anchorMin = Vector2.zero;
-        premiumTextRT.anchorMax = Vector2.one;
-        premiumTextRT.offsetMin = Vector2.zero;
-        premiumTextRT.offsetMax = Vector2.zero;
+        var img    = closeBtn.AddComponent<Image>();
+        Sprite spr = Resources.Load<Sprite>("btn_close");
+        if (spr != null) { img.sprite = spr; img.preserveAspect = true; }
+        else { img.color = new Color(0.7f, 0.15f, 0.15f); }
+
+        var btn = closeBtn.AddComponent<Button>();
+        btn.targetGraphic = img;
+        btn.onClick.AddListener(() =>
+        {
+            if (_root != null) { Object.Destroy(_root); _root = null; }
+        });
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+    static GameObject NewGO(string name, Transform parent)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        return go;
+    }
+
+    // Stretch to fill parent with optional pixel inset on each side
+    static void Stretch(GameObject go, float insetH = 0, float insetV = 0)
+    {
+        var rt = go.GetComponent<RectTransform>();
+        if (rt == null) rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(insetH, insetV);
+        rt.offsetMax = new Vector2(-insetH, -insetV);
+    }
+
+    static TextMeshProUGUI MakeTMP(string goName, Transform parent,
+        string text, float size, FontStyles style, Color color)
+    {
+        var go  = NewGO(goName, parent);
+        var tmp = go.AddComponent<TextMeshProUGUI>();
+        tmp.text      = text;
+        tmp.fontSize  = size;
+        tmp.fontStyle = style;
+        tmp.color     = color;
+        if (_font != null) tmp.font = _font;
+        tmp.textWrappingMode = TextWrappingModes.Normal;
+        return tmp;
     }
 }

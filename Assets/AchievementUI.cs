@@ -180,27 +180,21 @@ public class AchievementUI : MonoBehaviour
         GameObject closeGO = new GameObject("CloseButton");
         closeGO.transform.SetParent(parent.transform, false);
 
-        Image closeBG = closeGO.AddComponent<Image>();
-        closeBG.color = new Color(0.8f, 0.2f, 0.2f);
+        Image closeBG    = closeGO.AddComponent<Image>();
+        Sprite closeSpr  = Resources.Load<Sprite>("btn_close");
+        if (closeSpr != null) { closeBG.sprite = closeSpr; closeBG.preserveAspect = true; }
+        else closeBG.color = new Color(0.8f, 0.2f, 0.2f);
 
         Button closeBtn = closeGO.AddComponent<Button>();
+        closeBtn.targetGraphic = closeBG;
         closeBtn.onClick.AddListener(() => panel.SetActive(false));
 
+        // Top-right corner of the panel
         RectTransform closeRT = closeGO.GetComponent<RectTransform>();
-        closeRT.anchoredPosition = new Vector2(0, 30);
-        closeRT.sizeDelta = new Vector2(150, 50);
-
-        GameObject closeTextGO = new GameObject("Text");
-        closeTextGO.transform.SetParent(closeGO.transform, false);
-        TextMeshProUGUI closeText = closeTextGO.AddComponent<TextMeshProUGUI>();
-        closeText.text = "CLOSE";
-        closeText.fontSize = 16;
-        closeText.color = Color.white;
-
-        RectTransform closeTextRT = closeTextGO.GetComponent<RectTransform>();
-        closeTextRT.anchorMin = Vector2.zero;
-        closeTextRT.anchorMax = Vector2.one;
-        closeTextRT.offsetMin = Vector2.zero;
-        closeTextRT.offsetMax = Vector2.zero;
+        closeRT.anchorMin        = new Vector2(1f, 1f);
+        closeRT.anchorMax        = new Vector2(1f, 1f);
+        closeRT.pivot            = new Vector2(1f, 1f);
+        closeRT.anchoredPosition = new Vector2(-12f, -12f);
+        closeRT.sizeDelta        = new Vector2(70, 70);
     }
 }
