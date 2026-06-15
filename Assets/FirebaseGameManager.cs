@@ -687,19 +687,19 @@ void Create2PlayerButton(GameObject parent)
     btn2P.transform.SetParent(parent.transform, false);
 
     Image img = btn2P.AddComponent<Image>();
-    img.color = new Color(0.1f, 0.4f, 0.15f, 0.95f); // green
+    img.color = new Color(0.11f, 0.39f, 0.72f, 0.97f); // ocean blue — distinct from green solo
 
     Button comp = btn2P.AddComponent<Button>();
     comp.onClick.AddListener(OnTwoPlayerPressed);
 
     RectTransform rt = btn2P.GetComponent<RectTransform>();
     rt.sizeDelta        = new Vector2(420, 110);
-    rt.anchoredPosition = new Vector2(0, -270); // below solo button
+    rt.anchoredPosition = new Vector2(0, -270);
 
     GameObject labelGO = new GameObject("Label");
     labelGO.transform.SetParent(btn2P.transform, false);
     TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
-    label.text      = "⚔ 2 PLAYER";
+    label.text      = "⚔  2 PLAYER";
     label.fontSize  = 42;
     label.fontStyle = FontStyles.Bold;
     label.color     = Color.white;
@@ -709,191 +709,543 @@ void Create2PlayerButton(GameObject parent)
     labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
 }
 
-// ── 2-Player Room Panel ──────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════
+// MULTIPLAYER UI — redesigned from first principles
+// 4 distinct screen states, each a child group toggled by SetActive.
+// All layout uses anchors — no hardcoded pixel positions.
+// Design tokens defined once at the top.
+// ════════════════════════════════════════════════════════════════════
 
-private GameObject _mpPanel;
-private TextMeshProUGUI _mpCodeText;
-private TextMeshProUGUI _mpStatusText;
-private TMP_InputField  _mpJoinInput;
+// ── Design tokens ────────────────────────────────────────────────────
+static readonly Color MP_BG_DEEP    = new Color(0.04f, 0.09f, 0.16f, 0.97f); // #0A1628
+static readonly Color MP_BG_CARD    = new Color(0.08f, 0.18f, 0.32f, 1.00f); // #142E52
+static readonly Color MP_RED        = new Color(0.91f, 0.27f, 0.27f, 1.00f); // primary CTA
+static readonly Color MP_BLUE       = new Color(0.11f, 0.39f, 0.72f, 1.00f); // secondary
+static readonly Color MP_GREEN      = new Color(0.10f, 0.48f, 0.26f, 1.00f); // join
+static readonly Color MP_CANCEL     = new Color(0.25f, 0.10f, 0.10f, 1.00f); // cancel/back
+static readonly Color MP_GOLD       = new Color(1.00f, 0.84f, 0.00f, 1.00f); // room code
+static readonly Color MP_TEXT       = new Color(1.00f, 1.00f, 1.00f, 1.00f);
+static readonly Color MP_TEXT_DIM   = new Color(0.55f, 0.66f, 0.78f, 1.00f);
+static readonly Color MP_DIVIDER    = new Color(0.12f, 0.23f, 0.36f, 1.00f);
+
+// ── Screen state refs ────────────────────────────────────────────────
+private GameObject      _mpPanel;          // full-screen overlay root
+private GameObject      _mpScreenMain;     // state: entry (Quick Match + friend options)
+private GameObject      _mpScreenSearch;   // state: QuickPlay searching
+private GameObject      _mpScreenHost;     // state: waiting with room code
+private GameObject      _mpScreenJoin;     // state: enter friend's code
+private TextMeshProUGUI _mpHostCodeLabel;  // big room code in host screen
+private TextMeshProUGUI _mpSearchStatus;   // "Searching…" text
+private TMP_InputField  _mpJoinInput;      // code entry field
+private TextMeshProUGUI _mpJoinError;      // validation message under input
+private Coroutine       _mpDotsCoroutine;  // animated dots
 
 void OnTwoPlayerPressed()
 {
-    // Must have username first
     string username = PlayerPrefs.GetString("USERNAME", "").Trim();
     if (string.IsNullOrEmpty(username)) { OnSubmitUsername(); return; }
-
-    ShowMPPanel();
+    BuildMPPanelIfNeeded();
+    ShowMPScreen(_mpScreenMain);
+    _mpPanel.SetActive(true);
 }
 
-void ShowMPPanel()
+// ── Panel builder (called once) ───────────────────────────────────────
+
+void BuildMPPanelIfNeeded()
 {
-    if (_mpPanel != null) { _mpPanel.SetActive(true); return; }
+    if (_mpPanel != null) return;
 
-    Canvas canvas = mainCanvas;
-    _mpPanel = new GameObject("MPRoomPanel");
-    _mpPanel.transform.SetParent(canvas.transform, false);
+    _mpPanel = MPMakeFullscreen(mainCanvas.gameObject, "MPPanel", MP_BG_DEEP);
+    _mpPanel.SetActive(false);
 
-    // Dark background
-    Image bg = _mpPanel.AddComponent<Image>();
-    bg.color = new Color(0f, 0f, 0f, 0.88f);
-    RectTransform bgRT = _mpPanel.GetComponent<RectTransform>();
-    bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
-    bgRT.offsetMin = bgRT.offsetMax = Vector2.zero;
+    _mpScreenMain   = BuildScreenMain();
+    _mpScreenSearch = BuildScreenSearch();
+    _mpScreenHost   = BuildScreenHost();
+    _mpScreenJoin   = BuildScreenJoin();
 
-    // Title
-    AddLabel(_mpPanel, "⚔ 2 PLAYER", new Vector2(0, 320), 56, Color.white);
+    foreach (var s in new[]{ _mpScreenMain, _mpScreenSearch, _mpScreenHost, _mpScreenJoin })
+        s.SetActive(false);
+}
 
-    // FIND OPPONENT (QuickPlay) — big prominent button at top
-    AddButton(_mpPanel, "🔍 FIND OPPONENT", new Vector2(0, 200), new Vector2(500, 120),
-        new Color(0.55f, 0.15f, 0.05f), () =>
+void ShowMPScreen(GameObject target)
+{
+    foreach (var s in new[]{ _mpScreenMain, _mpScreenSearch, _mpScreenHost, _mpScreenJoin })
+        if (s != null) s.SetActive(s == target);
+    if (_mpDotsCoroutine != null) { StopCoroutine(_mpDotsCoroutine); _mpDotsCoroutine = null; }
+}
+
+// ── SCREEN: Main (entry) ──────────────────────────────────────────────
+//
+//  ┌─────────────────────────────────────┐
+//  │ ←                   ⚔ BATTLE MODE  │  header 15%
+//  ├─────────────────────────────────────┤
+//  │                                     │
+//  │  ┌──── QUICK MATCH card ──────┐     │
+//  │  │  🌍 Play against anyone   │     │  card 30%
+//  │  │      online instantly      │     │
+//  │  │  [ PLAY NOW ───────────► ] │     │
+//  │  └───────────────────────────┘     │
+//  │                                     │
+//  │  ─────── PLAY WITH A FRIEND ──────  │  divider
+//  │                                     │
+//  │  [ ⚔  CREATE PRIVATE ROOM       ]  │  secondary btn 12%
+//  │  [ 🔑  JOIN WITH ROOM CODE       ]  │  secondary btn 12%
+//  └─────────────────────────────────────┘
+
+GameObject BuildScreenMain()
+{
+    var screen = MPMakeContainer(_mpPanel, "Screen_Main");
+
+    // Header
+    MPHeader(screen, "⚔  BATTLE MODE", () => CloseMPPanel());
+
+    // Quick Match card (top 45% of content area)
+    var card = MPCard(screen,
+        anchorMin: new Vector2(0.05f, 0.48f),
+        anchorMax: new Vector2(0.95f, 0.80f));
+
+    MPText(card, "🌍  QUICK MATCH",
+        new Vector2(0.5f, 0.82f), new Vector2(0.5f, 0.82f),
+        new Vector2(0f, 80f), 52f, MP_TEXT, FontStyles.Bold);
+
+    MPText(card, "Find a random opponent online",
+        new Vector2(0.5f, 0.62f), new Vector2(0.5f, 0.62f),
+        new Vector2(0f, 52f), 28f, MP_TEXT_DIM, FontStyles.Normal);
+
+    MPButton(card, "PLAY NOW  ▶",
+        anchorMin: new Vector2(0.06f, 0.06f),
+        anchorMax: new Vector2(0.94f, 0.38f),
+        color: MP_RED, onClick: () =>
         {
+            ShowMPScreen(_mpScreenSearch);
+            _mpSearchStatus.text = "Searching for a worthy opponent…";
+            _mpDotsCoroutine = StartCoroutine(AnimateDots(_mpSearchStatus, "Searching for a worthy opponent"));
             string user = PlayerPrefs.GetString("USERNAME", "Player");
-            _mpStatusText.text = "Searching for opponent...";
-            _mpCodeText.text   = "";
             MultiplayerManager.Instance.QuickPlay(user,
-                status => _mpStatusText.text = status,
-                err =>
-                {
-                    _mpStatusText.text = err;
-                    // Re-show panel after error
-                    if (_mpPanel != null) _mpPanel.SetActive(true);
-                });
-            // Hide panel while searching — countdown overlay takes over when found
-            _mpPanel.SetActive(false);
+                status => { if (_mpSearchStatus != null) _mpSearchStatus.text = status; },
+                err   => { ShowMPScreen(_mpScreenMain); });
         });
 
-    // Divider label
-    AddLabel(_mpPanel, "── or play with a friend ──", new Vector2(0, 90), 26, new Color(0.6f, 0.6f, 0.6f));
+    // Divider
+    MPDivider(screen, 0.44f, "─────  OR PLAY WITH A FRIEND  ─────");
 
-    // Status text
-    var statusGO = new GameObject("MPStatus");
-    statusGO.transform.SetParent(_mpPanel.transform, false);
-    _mpStatusText = statusGO.AddComponent<TextMeshProUGUI>();
-    _mpStatusText.text      = "";
-    _mpStatusText.fontSize  = 32;
-    _mpStatusText.alignment = TextAlignmentOptions.Center;
-    _mpStatusText.color     = new Color(0.75f, 0.95f, 0.75f, 1f);
-    var stRT = _mpStatusText.GetComponent<RectTransform>();
-    stRT.anchorMin = new Vector2(0.1f, 0.5f); stRT.anchorMax = new Vector2(0.9f, 0.5f);
-    stRT.sizeDelta = new Vector2(0, 60); stRT.anchoredPosition = new Vector2(0, 180);
-
-    // Room code display (shown after creating)
-    var codeGO = new GameObject("MPCode");
-    codeGO.transform.SetParent(_mpPanel.transform, false);
-    _mpCodeText = codeGO.AddComponent<TextMeshProUGUI>();
-    _mpCodeText.text      = "";
-    _mpCodeText.fontSize  = 80;
-    _mpCodeText.fontStyle = FontStyles.Bold;
-    _mpCodeText.alignment = TextAlignmentOptions.Center;
-    _mpCodeText.color     = new Color(0.4f, 1f, 0.5f, 1f);
-    var codeRT = _mpCodeText.GetComponent<RectTransform>();
-    codeRT.anchorMin = new Vector2(0.1f, 0.5f); codeRT.anchorMax = new Vector2(0.9f, 0.5f);
-    codeRT.sizeDelta = new Vector2(0, 120); codeRT.anchoredPosition = new Vector2(0, 60);
-
-    // CREATE ROOM button
-    AddButton(_mpPanel, "CREATE ROOM", new Vector2(-110, -50), new Vector2(300, 100),
-        new Color(0.1f, 0.45f, 0.2f), () =>
+    // Create Room button
+    MPButton(screen, "⚔   CREATE PRIVATE ROOM",
+        anchorMin: new Vector2(0.05f, 0.24f),
+        anchorMax: new Vector2(0.95f, 0.37f),
+        color: MP_BLUE, onClick: () =>
         {
             string user = PlayerPrefs.GetString("USERNAME", "Player");
-            _mpStatusText.text = "Creating room...";
+            ShowMPScreen(_mpScreenHost);
+            _mpHostCodeLabel.text = "- - - -";
+            _mpDotsCoroutine = StartCoroutine(AnimateDots(_mpHostCodeLabel, "- - - -", dots: false));
             MultiplayerManager.Instance.CreateRoom(user,
                 code =>
                 {
-                    _mpCodeText.text   = code;
-                    _mpStatusText.text = "Share this code!\nWaiting for opponent...";
+                    if (_mpDotsCoroutine != null) { StopCoroutine(_mpDotsCoroutine); _mpDotsCoroutine = null; }
+                    if (_mpHostCodeLabel != null) _mpHostCodeLabel.text = code;
                 },
-                err => _mpStatusText.text = "Error: " + err);
+                err => ShowMPScreen(_mpScreenMain));
         });
 
-    // JOIN ROOM area
-    // Input
-    var joinInputGO = new GameObject("JoinInput");
-    joinInputGO.transform.SetParent(_mpPanel.transform, false);
-    joinInputGO.AddComponent<Image>().color = new Color(1f, 1f, 1f, 0.15f);
-    _mpJoinInput = joinInputGO.AddComponent<TMP_InputField>();
-    _mpJoinInput.characterLimit = 4;
-    var joinRT = joinInputGO.GetComponent<RectTransform>();
-    joinRT.anchorMin = new Vector2(0.5f, 0.5f); joinRT.anchorMax = new Vector2(0.5f, 0.5f);
-    joinRT.pivot = new Vector2(0.5f, 0.5f);
-    joinRT.sizeDelta = new Vector2(220, 80); joinRT.anchoredPosition = new Vector2(80, -170);
-
-    var joinTextGO = new GameObject("JoinText");
-    joinTextGO.transform.SetParent(joinInputGO.transform, false);
-    TextMeshProUGUI joinTxt = joinTextGO.AddComponent<TextMeshProUGUI>();
-    joinTxt.fontSize = 42; joinTxt.color = Color.white; joinTxt.alignment = TextAlignmentOptions.Center;
-    var jtRT = joinTxt.GetComponent<RectTransform>();
-    jtRT.anchorMin = Vector2.zero; jtRT.anchorMax = Vector2.one;
-    jtRT.offsetMin = jtRT.offsetMax = Vector2.zero;
-    _mpJoinInput.textComponent = joinTxt;
-
-    var phGO = new GameObject("Placeholder");
-    phGO.transform.SetParent(joinInputGO.transform, false);
-    TextMeshProUGUI ph = phGO.AddComponent<TextMeshProUGUI>();
-    ph.text = "CODE"; ph.fontSize = 36; ph.color = Color.gray; ph.alignment = TextAlignmentOptions.Center;
-    var phRT = ph.GetComponent<RectTransform>();
-    phRT.anchorMin = Vector2.zero; phRT.anchorMax = Vector2.one;
-    phRT.offsetMin = phRT.offsetMax = Vector2.zero;
-    _mpJoinInput.placeholder = ph;
-
-    // JOIN button
-    AddButton(_mpPanel, "JOIN", new Vector2(230, -170), new Vector2(160, 80),
-        new Color(0.15f, 0.3f, 0.55f), () =>
+    // Join Room button
+    MPButton(screen, "🔑   JOIN WITH ROOM CODE",
+        anchorMin: new Vector2(0.05f, 0.09f),
+        anchorMax: new Vector2(0.95f, 0.22f),
+        color: MP_GREEN, onClick: () =>
         {
-            string code = _mpJoinInput.text.Trim().ToUpper();
-            if (code.Length != 4) { _mpStatusText.text = "Enter 4-letter code"; return; }
-            string user = PlayerPrefs.GetString("USERNAME", "Player");
-            _mpStatusText.text = "Joining...";
-            MultiplayerManager.Instance.JoinRoom(code, user,
-                () =>
-                {
-                    _mpStatusText.text = "Joined! Get ready...";
-                    _mpPanel.SetActive(false); // hide panel — countdown takes over
-                },
-                err => _mpStatusText.text = "Error: " + err);
+            _mpJoinInput.text  = "";
+            _mpJoinError.text  = "";
+            ShowMPScreen(_mpScreenJoin);
         });
 
-    // CANCEL button
-    AddButton(_mpPanel, "✕ CANCEL", new Vector2(0, -310), new Vector2(260, 80),
-        new Color(0.5f, 0.1f, 0.1f), () =>
+    return screen;
+}
+
+// ── SCREEN: Searching ─────────────────────────────────────────────────
+//
+//  ┌─────────────────────────────────────┐
+//  │ ←              FINDING OPPONENT    │  header
+//  ├─────────────────────────────────────┤
+//  │                                     │
+//  │      Searching for a worthy         │
+//  │         opponent…  ●●●              │  animated status 40%
+//  │                                     │
+//  │   No opponent? A bot joins in 60s   │  caption
+//  │                                     │
+//  │  [ ✕  CANCEL SEARCH              ]  │  cancel btn bottom 12%
+//  └─────────────────────────────────────┘
+
+GameObject BuildScreenSearch()
+{
+    var screen = MPMakeContainer(_mpPanel, "Screen_Search");
+
+    MPHeader(screen, "FINDING OPPONENT", () =>
+    {
+        MultiplayerManager.Instance?.AbortMultiplayer();
+        ShowMPScreen(_mpScreenMain);
+    });
+
+    _mpSearchStatus = MPText(screen, "Searching…",
+        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+        new Vector2(0f, 96f), 36f, MP_TEXT, FontStyles.Normal);
+    _mpSearchStatus.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 80f);
+
+    MPText(screen, "No one around? A bot joins in 60 seconds.",
+        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+        new Vector2(0f, 52f), 26f, MP_TEXT_DIM, FontStyles.Normal)
+        .GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -20f);
+
+    MPButton(screen, "✕   CANCEL SEARCH",
+        anchorMin: new Vector2(0.15f, 0.09f),
+        anchorMax: new Vector2(0.85f, 0.20f),
+        color: MP_CANCEL, onClick: () =>
         {
             MultiplayerManager.Instance?.AbortMultiplayer();
-            _mpPanel.SetActive(false);
+            ShowMPScreen(_mpScreenMain);
         });
+
+    return screen;
 }
 
-// ── UI helpers ──────────────────────────────────────────────────────
+// ── SCREEN: Host (waiting with code) ─────────────────────────────────
+//
+//  ┌─────────────────────────────────────┐
+//  │ ←                 PRIVATE ROOM     │  header
+//  ├─────────────────────────────────────┤
+//  │                                     │
+//  │    Share this code with your friend │
+//  │                                     │
+//  │  ┌─────────────────────────────┐   │
+//  │  │          K 7 Q M            │   │  gold, 110px — easy to read/screenshot
+//  │  └─────────────────────────────┘   │
+//  │                                     │
+//  │     Waiting for opponent…  ●●●     │
+//  │                                     │
+//  │  [ ✕  CANCEL                     ]  │
+//  └─────────────────────────────────────┘
 
-void AddLabel(GameObject parent, string text, Vector2 pos, float size, Color color)
+GameObject BuildScreenHost()
 {
-    var go = new GameObject("Label_" + text);
-    go.transform.SetParent(parent.transform, false);
-    var tmp = go.AddComponent<TextMeshProUGUI>();
-    tmp.text = text; tmp.fontSize = size; tmp.color = color;
-    tmp.fontStyle = FontStyles.Bold; tmp.alignment = TextAlignmentOptions.Center;
-    var rt = tmp.GetComponent<RectTransform>();
-    rt.anchorMin = new Vector2(0.1f, 0.5f); rt.anchorMax = new Vector2(0.9f, 0.5f);
-    rt.sizeDelta = new Vector2(0, size * 1.5f); rt.anchoredPosition = pos;
+    var screen = MPMakeContainer(_mpPanel, "Screen_Host");
+
+    MPHeader(screen, "PRIVATE ROOM", () =>
+    {
+        MultiplayerManager.Instance?.AbortMultiplayer();
+        ShowMPScreen(_mpScreenMain);
+    });
+
+    MPText(screen, "Share this code with your friend",
+        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+        new Vector2(0f, 52f), 30f, MP_TEXT_DIM, FontStyles.Normal)
+        .GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 200f);
+
+    // Code card
+    var codeCard = MPCard(screen,
+        anchorMin: new Vector2(0.10f, 0.44f),
+        anchorMax: new Vector2(0.90f, 0.66f));
+
+    _mpHostCodeLabel = MPText(codeCard, "- - - -",
+        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+        new Vector2(0f, 90f), 108f, MP_GOLD, FontStyles.Bold);
+    _mpHostCodeLabel.letterSpacing = 24f;
+
+    MPText(screen, "Waiting for opponent…",
+        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+        new Vector2(0f, 52f), 30f, MP_TEXT_DIM, FontStyles.Normal)
+        .GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -60f);
+
+    MPButton(screen, "✕   CANCEL",
+        anchorMin: new Vector2(0.15f, 0.09f),
+        anchorMax: new Vector2(0.85f, 0.20f),
+        color: MP_CANCEL, onClick: () =>
+        {
+            MultiplayerManager.Instance?.AbortMultiplayer();
+            ShowMPScreen(_mpScreenMain);
+        });
+
+    return screen;
 }
 
-void AddButton(GameObject parent, string label, Vector2 pos, Vector2 size, Color color, UnityEngine.Events.UnityAction onClick)
+// ── SCREEN: Join (enter code) ─────────────────────────────────────────
+//
+//  ┌─────────────────────────────────────┐
+//  │ ←                    JOIN ROOM     │  header
+//  ├─────────────────────────────────────┤
+//  │                                     │
+//  │   Enter your friend's room code     │
+//  │                                     │
+//  │  ┌─────────────────────────────┐   │
+//  │  │  _ _ _ _                    │   │  large input, centred
+//  │  └─────────────────────────────┘   │
+//  │  [error text if invalid]           │
+//  │                                     │
+//  │  [ JOIN ROOM  ─────────────── ► ]  │  primary green CTA
+//  └─────────────────────────────────────┘
+
+GameObject BuildScreenJoin()
+{
+    var screen = MPMakeContainer(_mpPanel, "Screen_Join");
+
+    MPHeader(screen, "JOIN ROOM", () => ShowMPScreen(_mpScreenMain));
+
+    MPText(screen, "Enter your friend's room code",
+        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+        new Vector2(0f, 52f), 30f, MP_TEXT_DIM, FontStyles.Normal)
+        .GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 200f);
+
+    // Code input card
+    var inputCard = MPCard(screen,
+        anchorMin: new Vector2(0.10f, 0.44f),
+        anchorMax: new Vector2(0.90f, 0.66f));
+
+    _mpJoinInput = MPCodeInput(inputCard);
+
+    // Error label under card
+    _mpJoinError = MPText(screen, "",
+        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+        new Vector2(0f, 40f), 26f, new Color(1f, 0.4f, 0.4f), FontStyles.Normal);
+    _mpJoinError.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -60f);
+
+    MPButton(screen, "JOIN ROOM  ▶",
+        anchorMin: new Vector2(0.05f, 0.09f),
+        anchorMax: new Vector2(0.95f, 0.22f),
+        color: MP_GREEN, onClick: () =>
+        {
+            string code = _mpJoinInput.text.Trim().ToUpper();
+            if (code.Length != 4) { _mpJoinError.text = "Code must be exactly 4 characters"; return; }
+            _mpJoinError.text = "";
+            string user = PlayerPrefs.GetString("USERNAME", "Player");
+            MultiplayerManager.Instance.JoinRoom(code, user,
+                () => _mpPanel.SetActive(false),
+                err => { _mpJoinError.text = err; });
+        });
+
+    return screen;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// PRIMITIVE BUILDERS
+// All use anchors. anchorMin/Max define position AND size — no sizeDelta
+// hacks on non-center pivots.
+// ────────────────────────────────────────────────────────────────────
+
+void CloseMPPanel()
+{
+    MultiplayerManager.Instance?.AbortMultiplayer();
+    if (_mpPanel != null) _mpPanel.SetActive(false);
+}
+
+// Full-screen overlay
+GameObject MPMakeFullscreen(GameObject parent, string name, Color bg)
+{
+    var go = new GameObject(name);
+    go.transform.SetParent(parent.transform, false);
+    var img = go.AddComponent<Image>();
+    img.color = bg;
+    var rt = go.GetComponent<RectTransform>();
+    rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+    rt.offsetMin = rt.offsetMax = Vector2.zero;
+    return go;
+}
+
+// Screen container (same size as panel, invisible)
+GameObject MPMakeContainer(GameObject parent, string name)
+{
+    var go = new GameObject(name);
+    go.transform.SetParent(parent.transform, false);
+    var rt = go.AddComponent<RectTransform>();
+    rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+    rt.offsetMin = rt.offsetMax = Vector2.zero;
+    return go;
+}
+
+// Header: back arrow left, title center, subtle separator line
+void MPHeader(GameObject screen, string title, System.Action onBack)
+{
+    // Background strip
+    var header = new GameObject("Header");
+    header.transform.SetParent(screen.transform, false);
+    var hImg = header.AddComponent<Image>();
+    hImg.color = new Color(0.06f, 0.14f, 0.25f, 1f);
+    var hRT = header.GetComponent<RectTransform>();
+    hRT.anchorMin = new Vector2(0f, 0.84f); hRT.anchorMax = new Vector2(1f, 1f);
+    hRT.offsetMin = hRT.offsetMax = Vector2.zero;
+
+    // Back button (left-anchored square)
+    var backBtn = new GameObject("BackBtn");
+    backBtn.transform.SetParent(header.transform, false);
+    backBtn.AddComponent<Image>().color = new Color(1f,1f,1f,0f); // transparent hit area
+    var bComp = backBtn.AddComponent<Button>();
+    bComp.onClick.AddListener(() => onBack());
+    var bRT = backBtn.GetComponent<RectTransform>();
+    bRT.anchorMin = new Vector2(0f, 0f); bRT.anchorMax = new Vector2(0f, 1f);
+    bRT.pivot = new Vector2(0f, 0.5f);
+    bRT.offsetMin = Vector2.zero; bRT.offsetMax = Vector2.zero;
+    bRT.sizeDelta = new Vector2(140f, 0f);
+
+    var backLbl = new GameObject("BackLbl");
+    backLbl.transform.SetParent(backBtn.transform, false);
+    var bTxt = backLbl.AddComponent<TextMeshProUGUI>();
+    bTxt.text = "‹  Back"; bTxt.fontSize = 32f; bTxt.color = MP_TEXT_DIM;
+    bTxt.alignment = TextAlignmentOptions.MidlineLeft;
+    var bLRT = bTxt.GetComponent<RectTransform>();
+    bLRT.anchorMin = Vector2.zero; bLRT.anchorMax = Vector2.one;
+    bLRT.offsetMin = new Vector2(24f, 0f); bLRT.offsetMax = Vector2.zero;
+
+    // Title (centred in header)
+    var titleGO = new GameObject("HeaderTitle");
+    titleGO.transform.SetParent(header.transform, false);
+    var tTxt = titleGO.AddComponent<TextMeshProUGUI>();
+    tTxt.text = title; tTxt.fontSize = 40f; tTxt.color = MP_TEXT;
+    tTxt.fontStyle = FontStyles.Bold; tTxt.alignment = TextAlignmentOptions.Center;
+    var tRT = tTxt.GetComponent<RectTransform>();
+    tRT.anchorMin = new Vector2(0.15f, 0f); tRT.anchorMax = new Vector2(0.85f, 1f);
+    tRT.offsetMin = tRT.offsetMax = Vector2.zero;
+
+    // Bottom separator line
+    var sep = new GameObject("Separator");
+    sep.transform.SetParent(screen.transform, false);
+    sep.AddComponent<Image>().color = MP_DIVIDER;
+    var sRT = sep.GetComponent<RectTransform>();
+    sRT.anchorMin = new Vector2(0f, 0.84f); sRT.anchorMax = new Vector2(1f, 0.84f);
+    sRT.offsetMin = Vector2.zero; sRT.offsetMax = Vector2.zero;
+    sRT.sizeDelta = new Vector2(0f, 2f);
+}
+
+// Card — dark surface panel with subtle rounded feel
+GameObject MPCard(GameObject parent, Vector2 anchorMin, Vector2 anchorMax)
+{
+    var go = new GameObject("Card");
+    go.transform.SetParent(parent.transform, false);
+    go.AddComponent<Image>().color = MP_BG_CARD;
+    var rt = go.GetComponent<RectTransform>();
+    rt.anchorMin = anchorMin; rt.anchorMax = anchorMax;
+    rt.offsetMin = rt.offsetMax = Vector2.zero;
+    return go;
+}
+
+// Full-width button using anchors
+void MPButton(GameObject parent, string label, Vector2 anchorMin, Vector2 anchorMax,
+              Color color, System.Action onClick)
 {
     var go = new GameObject("Btn_" + label);
     go.transform.SetParent(parent.transform, false);
     go.AddComponent<Image>().color = color;
-    go.AddComponent<Button>().onClick.AddListener(onClick);
+    var btn = go.AddComponent<Button>();
+    btn.onClick.AddListener(() => onClick());
     var rt = go.GetComponent<RectTransform>();
-    rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-    rt.sizeDelta = size; rt.anchoredPosition = pos;
+    rt.anchorMin = anchorMin; rt.anchorMax = anchorMax;
+    rt.offsetMin = rt.offsetMax = Vector2.zero;
 
-    var txtGO = new GameObject("T");
-    txtGO.transform.SetParent(go.transform, false);
-    var tmp = txtGO.AddComponent<TextMeshProUGUI>();
-    tmp.text = label; tmp.fontSize = Mathf.Min(size.y * 0.45f, 38f);
-    tmp.fontStyle = FontStyles.Bold; tmp.color = Color.white;
+    var lGO = new GameObject("Label");
+    lGO.transform.SetParent(go.transform, false);
+    var tmp = lGO.AddComponent<TextMeshProUGUI>();
+    tmp.text = label; tmp.fontSize = 40f;
+    tmp.fontStyle = FontStyles.Bold; tmp.color = MP_TEXT;
     tmp.alignment = TextAlignmentOptions.Center;
-    var trt = tmp.GetComponent<RectTransform>();
-    trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
-    trt.offsetMin = trt.offsetMax = Vector2.zero;
+    var lRT = tmp.GetComponent<RectTransform>();
+    lRT.anchorMin = Vector2.zero; lRT.anchorMax = Vector2.one;
+    lRT.offsetMin = lRT.offsetMax = Vector2.zero;
+}
+
+// Text label — anchor-pinned to a point, sized by sizeDelta height
+TextMeshProUGUI MPText(GameObject parent, string text,
+    Vector2 anchorMin, Vector2 anchorMax, Vector2 sizeDelta,
+    float fontSize, Color color, FontStyles style)
+{
+    var go = new GameObject("Txt_" + text.Substring(0, Mathf.Min(12, text.Length)));
+    go.transform.SetParent(parent.transform, false);
+    var tmp = go.AddComponent<TextMeshProUGUI>();
+    tmp.text = text; tmp.fontSize = fontSize; tmp.color = color;
+    tmp.fontStyle = style; tmp.alignment = TextAlignmentOptions.Center;
+    tmp.textWrappingMode = TextWrappingModes.Normal;
+    var rt = tmp.GetComponent<RectTransform>();
+    rt.anchorMin = anchorMin; rt.anchorMax = anchorMax;
+    rt.pivot = new Vector2(0.5f, 0.5f);
+    rt.sizeDelta = sizeDelta;
+    return tmp;
+}
+
+// Horizontal divider with centred text label
+void MPDivider(GameObject parent, float anchorY, string label)
+{
+    var line = new GameObject("Divider");
+    line.transform.SetParent(parent.transform, false);
+    line.AddComponent<Image>().color = MP_DIVIDER;
+    var lRT = line.GetComponent<RectTransform>();
+    lRT.anchorMin = new Vector2(0.05f, anchorY); lRT.anchorMax = new Vector2(0.95f, anchorY);
+    lRT.sizeDelta = new Vector2(0f, 2f);
+
+    var lbl = new GameObject("DividerLabel");
+    lbl.transform.SetParent(parent.transform, false);
+    var tmp = lbl.AddComponent<TextMeshProUGUI>();
+    tmp.text = label; tmp.fontSize = 24f; tmp.color = MP_TEXT_DIM;
+    tmp.alignment = TextAlignmentOptions.Center;
+    var rt = tmp.GetComponent<RectTransform>();
+    rt.anchorMin = new Vector2(0.1f, anchorY - 0.025f);
+    rt.anchorMax = new Vector2(0.9f, anchorY + 0.025f);
+    rt.offsetMin = rt.offsetMax = Vector2.zero;
+    // White background behind text to break the line visually
+    var bg = new GameObject("DividerBG");
+    bg.transform.SetParent(parent.transform, false);
+    bg.AddComponent<Image>().color = MP_BG_DEEP;
+    var bRT = bg.GetComponent<RectTransform>();
+    bRT.anchorMin = new Vector2(0.22f, anchorY - 0.02f);
+    bRT.anchorMax = new Vector2(0.78f, anchorY + 0.02f);
+    bRT.offsetMin = bRT.offsetMax = Vector2.zero;
+    lbl.transform.SetAsLastSibling();
+}
+
+// Large letter-spaced code input (4 chars)
+TMP_InputField MPCodeInput(GameObject parent)
+{
+    var go = new GameObject("CodeInput");
+    go.transform.SetParent(parent.transform, false);
+    go.AddComponent<Image>().color = new Color(0f,0f,0f,0f); // transparent — card provides BG
+    var input = go.AddComponent<TMP_InputField>();
+    input.characterLimit = 4;
+    input.contentType = TMP_InputField.ContentType.Alphanumeric;
+    var rt = go.GetComponent<RectTransform>();
+    rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+    rt.offsetMin = new Vector2(20f, 10f); rt.offsetMax = new Vector2(-20f, -10f);
+
+    var txtGO = new GameObject("Text");
+    txtGO.transform.SetParent(go.transform, false);
+    var txt = txtGO.AddComponent<TextMeshProUGUI>();
+    txt.fontSize = 88f; txt.color = MP_GOLD; txt.fontStyle = FontStyles.Bold;
+    txt.alignment = TextAlignmentOptions.Center; txt.letterSpacing = 18f;
+    var tRT = txt.GetComponent<RectTransform>();
+    tRT.anchorMin = Vector2.zero; tRT.anchorMax = Vector2.one;
+    tRT.offsetMin = tRT.offsetMax = Vector2.zero;
+    input.textComponent = txt;
+
+    var phGO = new GameObject("Placeholder");
+    phGO.transform.SetParent(go.transform, false);
+    var ph = phGO.AddComponent<TextMeshProUGUI>();
+    ph.text = "_ _ _ _"; ph.fontSize = 88f; ph.letterSpacing = 18f;
+    ph.color = new Color(1f, 0.84f, 0f, 0.3f); ph.alignment = TextAlignmentOptions.Center;
+    var pRT = ph.GetComponent<RectTransform>();
+    pRT.anchorMin = Vector2.zero; pRT.anchorMax = Vector2.one;
+    pRT.offsetMin = pRT.offsetMax = Vector2.zero;
+    input.placeholder = ph;
+
+    return input;
+}
+
+// Animated dots coroutine — appends ● ●● ●●● cycling every 0.5s
+IEnumerator AnimateDots(TextMeshProUGUI label, string baseText, bool dots = true)
+{
+    string[] frames = dots
+        ? new[]{ baseText + " ●", baseText + " ●●", baseText + " ●●●", baseText + " ●●" }
+        : new[]{ baseText };
+    int i = 0;
+    while (true)
+    {
+        if (label != null) label.text = frames[i % frames.Length];
+        i++;
+        yield return new WaitForSecondsRealtime(0.5f);
+    }
 }
 
 public void OnSubmitUsername()
