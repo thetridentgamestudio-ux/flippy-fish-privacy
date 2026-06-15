@@ -948,7 +948,7 @@ GameObject BuildScreenHost()
     _mpHostCodeLabel = MPText(codeCard, "- - - -",
         new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
         new Vector2(0f, 90f), 108f, MP_GOLD, FontStyles.Bold);
-    _mpHostCodeLabel.letterSpacing = 24f;
+    _mpHostCodeLabel.characterSpacing = 24f;
 
     MPText(screen, "Waiting for opponent…",
         new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
@@ -1214,7 +1214,7 @@ TMP_InputField MPCodeInput(GameObject parent)
     txtGO.transform.SetParent(go.transform, false);
     var txt = txtGO.AddComponent<TextMeshProUGUI>();
     txt.fontSize = 88f; txt.color = MP_GOLD; txt.fontStyle = FontStyles.Bold;
-    txt.alignment = TextAlignmentOptions.Center; txt.letterSpacing = 18f;
+    txt.alignment = TextAlignmentOptions.Center; txt.characterSpacing = 18f;
     var tRT = txt.GetComponent<RectTransform>();
     tRT.anchorMin = Vector2.zero; tRT.anchorMax = Vector2.one;
     tRT.offsetMin = tRT.offsetMax = Vector2.zero;
@@ -1223,7 +1223,7 @@ TMP_InputField MPCodeInput(GameObject parent)
     var phGO = new GameObject("Placeholder");
     phGO.transform.SetParent(go.transform, false);
     var ph = phGO.AddComponent<TextMeshProUGUI>();
-    ph.text = "_ _ _ _"; ph.fontSize = 88f; ph.letterSpacing = 18f;
+    ph.text = "_ _ _ _"; ph.fontSize = 88f; ph.characterSpacing = 18f;
     ph.color = new Color(1f, 0.84f, 0f, 0.3f); ph.alignment = TextAlignmentOptions.Center;
     var pRT = ph.GetComponent<RectTransform>();
     pRT.anchorMin = Vector2.zero; pRT.anchorMax = Vector2.one;
