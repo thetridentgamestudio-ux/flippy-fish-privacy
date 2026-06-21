@@ -40,8 +40,8 @@ public class BackgroundFishAnimator : MonoBehaviour
 
     const float AnimFPS       = 12f;
     const float SpawnInterval = 1.8f;
-    const float MinSpeed      = 1.2f;
-    const float MaxSpeed      = 2.8f;
+    const float MinSpeed      = 0.4f;
+    const float MaxSpeed      = 1.0f;
     const byte  AlphaThresh   = 12;    // pixel considered "content" if alpha > this
 
     // ── Per-creature runtime ──────────────────────────────────────────────────
