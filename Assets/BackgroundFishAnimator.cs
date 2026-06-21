@@ -124,9 +124,12 @@ public class BackgroundFishAnimator : MonoBehaviour
             return null;
         }
 
-        int contentH = yMax - yMin + 1;
-        // Unity Texture2D Y=0 is bottom; PIL/image Y=0 is top — convert
-        int unityY = h - yMax - 1;
+        // GetPixels32() already uses Unity coords (y=0 = bottom).
+        // yMin = bottom of content, yMax = top of content — use directly, no flip needed.
+        // Add 2px padding on all sides so antialiased edges are never clipped.
+        int pad      = 2;
+        int unityY   = Mathf.Max(0, yMin - pad);
+        int contentH = Mathf.Min(h, yMax + pad + 1) - unityY;
 
         // 2. Find horizontal content columns (columns that have any opaque pixel in content rows)
         bool[] hasContent = new bool[w];
