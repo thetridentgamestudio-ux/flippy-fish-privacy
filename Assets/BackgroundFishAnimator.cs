@@ -19,10 +19,11 @@ public class BackgroundFishAnimator : MonoBehaviour
     struct CreatureDef
     {
         public string resourceName;
-        public int    frameCount;   // total frames across all rows
-        public int    gridRows;     // 1 = single horizontal strip (default), 2 = 2-row grid, etc.
+        public int    frameCount;
+        public int    gridRows;
         public float  scale;
         public int    sortOrder;
+        public float  speedMul;   // 0 = use default (1.0). Lower = slower.
     }
 
     static readonly CreatureDef[] Defs = new CreatureDef[]
@@ -33,7 +34,7 @@ public class BackgroundFishAnimator : MonoBehaviour
         new CreatureDef { resourceName = "fish_purple", frameCount = 8,  scale = 1.2f, sortOrder = -7 },
         new CreatureDef { resourceName = "fish_green",  frameCount = 8,  scale = 1.1f, sortOrder = -8 },
         new CreatureDef { resourceName = "fish_silver", frameCount = 12, scale = 0.8f, sortOrder = -9 },
-        new CreatureDef { resourceName = "fish_school", frameCount = 8,  gridRows = 2, scale = 1.3f, sortOrder = -8 },
+        new CreatureDef { resourceName = "fish_school", frameCount = 8,  gridRows = 2, scale = 3.5f, sortOrder = -8, speedMul = 0.35f },
         new CreatureDef { resourceName = "jellyfish_1", frameCount = 8,  scale = 2.6f, sortOrder = -8 },
         new CreatureDef { resourceName = "jellyfish_2", frameCount = 8,  scale = 2.8f, sortOrder = -7 },
         new CreatureDef { resourceName = "jellyfish_3", frameCount = 8,  scale = 2.4f, sortOrder = -9 },
@@ -425,7 +426,7 @@ public class BackgroundFishAnimator : MonoBehaviour
             frames      = frames,
             animTimer   = Random.Range(0f, 1f / AnimFPS),
             frame       = Random.Range(0, frames.Length),
-            speed       = Random.Range(MinSpeed, MaxSpeed) * (1f + band * 0.35f),
+            speed       = Random.Range(MinSpeed, MaxSpeed) * (1f + band * 0.35f) * (def.speedMul > 0f ? def.speedMul : 1f),
             movingRight = right,
             baseY       = spawnY,
             bobPhase    = Random.Range(0f, Mathf.PI * 2f),
