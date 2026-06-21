@@ -2,222 +2,262 @@ using UnityEngine;
 using System.Collections.Generic;
 
 /// <summary>
-/// Spawns animated background fish using sprite sheets loaded entirely via code.
-/// No Unity Editor sprite slicing or Animator setup required.
-/// Place sprite sheet PNGs in Assets/Resources/FishSheets/ with Read/Write enabled.
+/// Smooth background fish/jellyfish animation.
+/// Uses Material.mainTextureOffset (UV scroll) instead of SpriteRenderer.sprite swapping —
+/// no mesh rebuild per frame, zero flicker, perfectly smooth at any game FPS.
+///
+/// Place PNGs in Assets/Resources/FishSheets/ with:
+///   Texture Type = Default, Read/Write Enabled (required for Sprite.Create slicing)
+///   Wrap Mode    = Clamp
 /// </summary>
 public class BackgroundFishAnimator : MonoBehaviour
 {
-    // ── Fish sheet definitions ────────────────────────────────────────────────
-    struct FishDef
+    // ── Creature definitions ──────────────────────────────────────────────────
+    struct CreatureDef
     {
-        public string resourceName; // filename inside Resources/FishSheets/ (no extension)
-        public int    frameCount;   // how many frames are in the horizontal strip
-        public float  scale;        // world-space scale at spawn
-        public int    layer;        // sorting order offset (deeper = more negative)
+        public string resourceName;
+        public int    frameCount;   // frames in horizontal strip
+        public float  scale;        // world-space height target (units)
+        public int    sortOrder;    // base sorting order
     }
 
-    static readonly FishDef[] FishDefs = new FishDef[]
+    static readonly CreatureDef[] Defs = new CreatureDef[]
     {
-        // Fish — horizontal animation strips
-        new FishDef { resourceName = "fish_blue",   frameCount = 8,  scale = 1.1f, layer = -8 },
-        new FishDef { resourceName = "fish_yellow", frameCount = 8,  scale = 1.2f, layer = -7 },
-        new FishDef { resourceName = "fish_purple", frameCount = 8,  scale = 1.2f, layer = -7 },
-        new FishDef { resourceName = "fish_green",  frameCount = 8,  scale = 1.1f, layer = -8 },
-        new FishDef { resourceName = "fish_silver", frameCount = 12, scale = 0.8f, layer = -9 },
-
-        // Jellyfish — single-frame sprites (frameCount=1 treats the whole PNG as one sprite)
-        // If your jellyfish PNGs have multiple animation frames in a row, change frameCount to match.
-        // frameCount = number of animation frames in the horizontal strip of each PNG.
-        // CHANGE THIS to match your actual sheet (count the frames in one jellyfish PNG).
-        new FishDef { resourceName = "jellyfish_1", frameCount = 8,  scale = 2.6f, layer = -8 },
-        new FishDef { resourceName = "jellyfish_2", frameCount = 8,  scale = 2.8f, layer = -7 },
-        new FishDef { resourceName = "jellyfish_3", frameCount = 8,  scale = 2.4f, layer = -9 },
-        new FishDef { resourceName = "jellyfish_4", frameCount = 8,  scale = 2.6f, layer = -8 },
-        new FishDef { resourceName = "jellyfish_5", frameCount = 8,  scale = 3.0f, layer = -7 },
+        new CreatureDef { resourceName = "fish_blue",   frameCount = 8,  scale = 1.1f, sortOrder = -8 },
+        new CreatureDef { resourceName = "fish_yellow", frameCount = 8,  scale = 1.2f, sortOrder = -7 },
+        new CreatureDef { resourceName = "fish_purple", frameCount = 8,  scale = 1.2f, sortOrder = -7 },
+        new CreatureDef { resourceName = "fish_green",  frameCount = 8,  scale = 1.1f, sortOrder = -8 },
+        new CreatureDef { resourceName = "fish_silver", frameCount = 12, scale = 0.8f, sortOrder = -9 },
+        new CreatureDef { resourceName = "jellyfish_1", frameCount = 8,  scale = 2.6f, sortOrder = -8 },
+        new CreatureDef { resourceName = "jellyfish_2", frameCount = 8,  scale = 2.8f, sortOrder = -7 },
+        new CreatureDef { resourceName = "jellyfish_3", frameCount = 8,  scale = 2.4f, sortOrder = -9 },
+        new CreatureDef { resourceName = "jellyfish_4", frameCount = 8,  scale = 2.6f, sortOrder = -8 },
+        new CreatureDef { resourceName = "jellyfish_5", frameCount = 8,  scale = 3.0f, sortOrder = -7 },
     };
 
     // ── Tuning ────────────────────────────────────────────────────────────────
-    const float AnimFPS      = 18f;   // higher = smoother frame transitions
+    const float AnimFPS       = 12f;   // animation frames per second
     const float SpawnInterval = 1.8f;
     const float MinSpeed      = 1.2f;
     const float MaxSpeed      = 2.8f;
 
-    // ── Runtime state ─────────────────────────────────────────────────────────
-    struct LiveFish
+    // ── Per-creature runtime data ─────────────────────────────────────────────
+    struct LiveCreature
     {
         public GameObject go;
-        public SpriteRenderer sr;
-        public Sprite[]  frames;
-        public float     animTimer;
-        public int       frame;
-        public float     speed;
-        public bool      movingRight;
-        public float     bobPhase;   // current sine phase for vertical bob
-        public float     bobSpeed;   // how fast it bobs
-        public float     bobAmp;     // amplitude in world units
+        public Material   mat;
+        public int        frameCount;
+        public float      frameDuration;  // 1 / AnimFPS
+        public float      animTimer;
+        public int        frame;
+        public float      speed;
+        public bool       movingRight;
+        public float      baseY;          // spawn Y — bob oscillates around this
+        public float      bobPhase;       // current sine phase
+        public float      bobSpeed;       // radians/sec
+        public float      bobAmp;         // world units amplitude
     }
 
-    Sprite[][]         _sheets;   // pre-sliced frame arrays per fish type
-    List<LiveFish>     _fish      = new List<LiveFish>();
+    // ── Loaded textures indexed by Defs[] ─────────────────────────────────────
+    Texture2D[]        _textures;
+    List<LiveCreature> _creatures = new List<LiveCreature>();
     float              _spawnTimer;
+
+    static Mesh _quadMesh;  // shared unit quad — created once
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Start()
     {
-        _sheets = new Sprite[FishDefs.Length][];
-
-        for (int i = 0; i < FishDefs.Length; i++)
+        _textures = new Texture2D[Defs.Length];
+        for (int i = 0; i < Defs.Length; i++)
         {
-            FishDef def = FishDefs[i];
-            Texture2D tex = Resources.Load<Texture2D>("FishSheets/" + def.resourceName);
+            Texture2D tex = Resources.Load<Texture2D>("FishSheets/" + Defs[i].resourceName);
             if (tex == null)
             {
-                Debug.LogError($"[FishAnim] FAILED to load FishSheets/{def.resourceName} — check: 1) file is in Assets/Resources/FishSheets/, 2) Texture Type = Default, 3) Read/Write Enabled in Inspector");
-                _sheets[i] = null;
+                Debug.LogError($"[FishAnim] Cannot load FishSheets/{Defs[i].resourceName}. " +
+                               "Check: file exists in Assets/Resources/FishSheets/, " +
+                               "Texture Type = Default, Read/Write = Enabled.");
                 continue;
             }
-
-            // Slice horizontally into equal frames — pure runtime code, no editor slicing
-            int frameW = tex.width / def.frameCount;
-            int frameH = tex.height;
-            _sheets[i] = new Sprite[def.frameCount];
-            for (int f = 0; f < def.frameCount; f++)
-            {
-                // Unity's Texture2D origin is bottom-left, so y=0 is correct for a single-row sheet
-                Rect rect = new Rect(f * frameW, 0, frameW, frameH);
-                _sheets[i][f] = Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f);
-            }
-
-            Debug.Log($"[FishAnim] Loaded {def.resourceName}: {def.frameCount} frames @ {frameW}x{frameH}px, world size ~{frameH/100f*def.scale:F2} units tall");
+            tex.wrapMode   = TextureWrapMode.Clamp;   // prevents edge bleed between frames
+            tex.filterMode = FilterMode.Bilinear;
+            _textures[i]   = tex;
+            Debug.Log($"[FishAnim] Loaded {Defs[i].resourceName} ({Defs[i].frameCount} frames)");
         }
     }
 
     void Update()
     {
         if (GameBootstrap.Instance == null) return;
-        // Fish swim in background during menu AND gameplay — pause only on game-over
         if (GameBootstrap.Instance.CurrentState == GameBootstrap.GameState.GameOver) return;
 
-        // Spawn timer
         _spawnTimer -= Time.deltaTime;
         if (_spawnTimer <= 0f)
         {
-            _spawnTimer = SpawnInterval + Random.Range(-0.3f, 0.3f); // slight jitter
-            SpawnFish();
+            _spawnTimer = SpawnInterval + Random.Range(-0.4f, 0.4f);
+            Spawn();
         }
 
-        // Update all live fish
-        float dt = Time.deltaTime;
+        float dt  = Time.deltaTime;
         Camera cam = Camera.main;
         float killX = cam.orthographicSize * cam.aspect + 5f;
 
-        for (int i = _fish.Count - 1; i >= 0; i--)
+        for (int i = _creatures.Count - 1; i >= 0; i--)
         {
-            LiveFish f = _fish[i];
-            if (f.go == null) { _fish.RemoveAt(i); continue; }
+            LiveCreature c = _creatures[i];
+            if (c.go == null) { _creatures.RemoveAt(i); continue; }
 
-            // Smooth horizontal movement
-            float dir = f.movingRight ? 1f : -1f;
-            Vector3 pos = f.go.transform.position;
-            pos.x += dir * f.speed * dt;
+            // ── Smooth horizontal movement ────────────────────────────────────
+            float dir = c.movingRight ? 1f : -1f;
+            float newX = c.go.transform.position.x + dir * c.speed * dt;
 
-            // Smooth sine-wave vertical bob — removes the rigid straight-line feel
-            f.bobPhase += f.bobSpeed * dt;
-            pos.y += Mathf.Sin(f.bobPhase) * f.bobAmp * dt;
-            f.go.transform.position = pos;
+            // ── Smooth vertical bob — absolute Y, never accumulates ───────────
+            c.bobPhase += c.bobSpeed * dt;
+            float newY = c.baseY + Mathf.Sin(c.bobPhase) * c.bobAmp;
 
-            // Advance animation frame
-            f.animTimer += dt;
-            if (f.animTimer >= 1f / AnimFPS)
+            c.go.transform.position = new Vector3(newX, newY, 0f);
+
+            // ── UV-offset animation — no mesh rebuild, no flicker ─────────────
+            c.animTimer += dt;
+            if (c.animTimer >= c.frameDuration)
             {
-                f.animTimer -= 1f / AnimFPS; // subtract instead of reset — prevents timer drift
-                f.frame = (f.frame + 1) % f.frames.Length;
-                f.sr.sprite = f.frames[f.frame];
+                c.animTimer -= c.frameDuration;
+                c.frame = (c.frame + 1) % c.frameCount;
+                // Slide the UV window to the current frame column
+                c.mat.mainTextureOffset = new Vector2((float)c.frame / c.frameCount, 0f);
             }
 
-            _fish[i] = f;
+            _creatures[i] = c;
 
-            // Kill when off-screen
-            float posX = f.go.transform.position.x;
-            if ((!f.movingRight && posX < -killX) || (f.movingRight && posX > killX))
+            // ── Cull off-screen ───────────────────────────────────────────────
+            if ((!c.movingRight && newX < -killX) || (c.movingRight && newX > killX))
             {
-                Destroy(f.go);
-                _fish.RemoveAt(i);
+                Destroy(c.mat);   // material is per-instance — must destroy manually
+                Destroy(c.go);
+                _creatures.RemoveAt(i);
             }
         }
     }
 
-    void SpawnFish()
+    // ── Spawn ─────────────────────────────────────────────────────────────────
+    void Spawn()
     {
-        // Pick a random fish type that loaded successfully
-        int typeIndex = -1;
-        for (int attempt = 0; attempt < 10; attempt++)
+        // Pick a random loaded creature type
+        int defIdx = -1;
+        for (int attempt = 0; attempt < 15; attempt++)
         {
-            int t = Random.Range(0, FishDefs.Length);
-            if (_sheets[t] != null && _sheets[t].Length > 0) { typeIndex = t; break; }
+            int t = Random.Range(0, Defs.Length);
+            if (_textures[t] != null) { defIdx = t; break; }
         }
-        if (typeIndex < 0) return;
+        if (defIdx < 0) return;
 
-        FishDef def       = FishDefs[typeIndex];
-        Sprite[] frames   = _sheets[typeIndex];
+        CreatureDef def = Defs[defIdx];
+        Texture2D   tex = _textures[defIdx];
 
-        Camera cam = Camera.main;
+        Camera cam  = Camera.main;
         float halfW = cam.orthographicSize * cam.aspect;
         float halfH = cam.orthographicSize;
 
-        // 15% chance fish swims right (from left side)
-        bool movingRight = Random.Range(0f, 1f) < 0.15f;
-        float spawnX = movingRight ? -(halfW + 2f) : (halfW + 2f);
+        bool  movingRight = Random.Range(0f, 1f) < 0.15f;
+        float spawnX      = movingRight ? -(halfW + 2f) : (halfW + 2f);
 
-        // Y: spread across the full water column, avoid very top and very bottom
         float groundTop = GameBootstrap.Instance != null
             ? GameBootstrap.Instance.groundTop
             : -halfH + 2.5f;
         float spawnY = Random.Range(groundTop + 0.5f, halfH * 0.75f);
 
-        // Depth layer: 3 parallax bands
-        int band = Random.Range(0, 3); // 0 = far, 1 = mid, 2 = near
-        float speedMulti  = 1f + band * 0.4f;
-        float scaleMulti  = 0.6f + band * 0.3f;
-        float alpha       = 0.25f + band * 0.15f; // far=0.25, mid=0.40, near=0.55 — subtle background
+        // Depth band: 0=far (slow, small, dim), 1=mid, 2=near
+        int   band       = Random.Range(0, 3);
+        float speedMul   = 1f + band * 0.35f;
+        float scaleMul   = 0.55f + band * 0.25f;
+        float alpha      = 0.22f + band * 0.16f;
 
-        GameObject go = new GameObject($"BgFish_{def.resourceName}_{band}");
+        // Build a quad sized to match one animation frame
+        int   frameW  = tex.width / def.frameCount;
+        int   frameH  = tex.height;
+        float aspect  = (float)frameW / frameH;
+        float worldH  = def.scale * scaleMul;
+        float worldW  = worldH * aspect;
+
+        GameObject go = new GameObject($"BgCreature_{def.resourceName}_{band}");
         go.transform.position = new Vector3(spawnX, spawnY, 0f);
 
-        SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
-        sr.sprite        = frames[Random.Range(0, frames.Length)];
-        sr.sortingOrder  = def.layer + band;
-        Color c          = Color.white;
-        c.a              = alpha;
-        sr.color         = c;
+        MeshFilter mf = go.AddComponent<MeshFilter>();
+        mf.mesh = GetQuadMesh();
 
-        float s = def.scale * scaleMulti;
-        // Flip to face direction of travel; right-moving fish flip on X
+        MeshRenderer mr = go.AddComponent<MeshRenderer>();
+        mr.shadowCastingMode    = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows       = false;
+        mr.sortingLayerName     = "Default";
+        mr.sortingOrder         = def.sortOrder + band;
+
+        // Per-instance material so each creature has its own UV offset
+        Material mat = new Material(Shader.Find("Sprites/Default"));
+        mat.mainTexture      = tex;
+        // Show only one frame column at a time
+        mat.mainTextureScale  = new Vector2(1f / def.frameCount, 1f);
+        mat.mainTextureOffset = new Vector2(0f, 0f);
+        Color col = Color.white;
+        col.a     = alpha;
+        mat.color = col;
+        mr.material = mat;
+
+        // Scale: X flipped when moving right so fish faces travel direction
         float flipX = movingRight ? -1f : 1f;
-        go.transform.localScale = new Vector3(s * flipX, s, 1f);
+        go.transform.localScale = new Vector3(worldW * flipX, worldH, 1f);
 
-        LiveFish lf = new LiveFish
+        _creatures.Add(new LiveCreature
         {
-            go          = go,
-            sr          = sr,
-            frames      = frames,
-            animTimer   = Random.Range(0f, 1f / AnimFPS), // stagger so all fish don't flip frames at once
-            frame       = Random.Range(0, frames.Length),
-            speed       = Random.Range(MinSpeed, MaxSpeed) * speedMulti,
-            movingRight = movingRight,
-            bobPhase    = Random.Range(0f, Mathf.PI * 2f), // random start so they don't bob in sync
-            bobSpeed    = Random.Range(1.2f, 2.5f),        // gentle random bob frequency
-            bobAmp      = Random.Range(0.08f, 0.20f),      // subtle vertical amplitude
-        };
-        _fish.Add(lf);
+            go            = go,
+            mat           = mat,
+            frameCount    = def.frameCount,
+            frameDuration = 1f / AnimFPS,
+            animTimer     = Random.Range(0f, 1f / AnimFPS), // stagger so not all flip at once
+            frame         = Random.Range(0, def.frameCount),
+            speed         = Random.Range(MinSpeed, MaxSpeed) * speedMul,
+            movingRight   = movingRight,
+            baseY         = spawnY,
+            bobPhase      = Random.Range(0f, Mathf.PI * 2f),
+            bobSpeed      = Random.Range(0.8f, 1.8f),
+            bobAmp        = Random.Range(0.05f, 0.18f),
+        });
     }
 
+    // ── Shared unit quad mesh ─────────────────────────────────────────────────
+    static Mesh GetQuadMesh()
+    {
+        if (_quadMesh != null) return _quadMesh;
+        _quadMesh = new Mesh { name = "BgFishQuad" };
+        _quadMesh.vertices  = new Vector3[] {
+            new Vector3(-0.5f, -0.5f, 0f),
+            new Vector3( 0.5f, -0.5f, 0f),
+            new Vector3(-0.5f,  0.5f, 0f),
+            new Vector3( 0.5f,  0.5f, 0f),
+        };
+        _quadMesh.triangles = new int[] { 0, 2, 1, 2, 3, 1 };
+        _quadMesh.uv        = new Vector2[] {
+            new Vector2(0, 0), new Vector2(1, 0),
+            new Vector2(0, 1), new Vector2(1, 1),
+        };
+        _quadMesh.RecalculateNormals();
+        return _quadMesh;
+    }
+
+    // ── Cleanup ───────────────────────────────────────────────────────────────
     public void ClearAll()
     {
-        foreach (var f in _fish)
-            if (f.go != null) Destroy(f.go);
-        _fish.Clear();
+        foreach (var c in _creatures)
+        {
+            if (c.mat != null) Destroy(c.mat);
+            if (c.go  != null) Destroy(c.go);
+        }
+        _creatures.Clear();
         _spawnTimer = 0f;
+    }
+
+    void OnDestroy()
+    {
+        ClearAll();
+        _quadMesh = null;
     }
 }
