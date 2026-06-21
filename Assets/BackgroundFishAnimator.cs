@@ -3,12 +3,15 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Smooth background fish/jellyfish animation.
-/// Uses Material.mainTextureOffset (UV scroll) instead of SpriteRenderer.sprite swapping —
-/// no mesh rebuild per frame, zero flicker, perfectly smooth at any game FPS.
 ///
-/// Place PNGs in Assets/Resources/FishSheets/ with:
-///   Texture Type = Default, Read/Write Enabled (required for Sprite.Create slicing)
-///   Wrap Mode    = Clamp
+/// At startup, scans each sprite sheet's pixel data to auto-detect the exact pixel
+/// boundaries of every frame — handles padding, uneven gaps, and vertical offsets
+/// without any Unity Editor sprite slicing.
+///
+/// Requires: Assets/Resources/FishSheets/*.png
+///   Texture Type   = Default
+///   Read/Write     = Enabled
+///   Wrap Mode      = Clamp   (set via code below, no editor step needed)
 /// </summary>
 public class BackgroundFishAnimator : MonoBehaviour
 {
@@ -16,9 +19,9 @@ public class BackgroundFishAnimator : MonoBehaviour
     struct CreatureDef
     {
         public string resourceName;
-        public int    frameCount;   // frames in horizontal strip
-        public float  scale;        // world-space height target (units)
-        public int    sortOrder;    // base sorting order
+        public int    frameCount;
+        public float  scale;      // world-space height in units
+        public int    sortOrder;
     }
 
     static readonly CreatureDef[] Defs = new CreatureDef[]
@@ -35,57 +38,149 @@ public class BackgroundFishAnimator : MonoBehaviour
         new CreatureDef { resourceName = "jellyfish_5", frameCount = 8,  scale = 3.0f, sortOrder = -7 },
     };
 
-    // ── Tuning ────────────────────────────────────────────────────────────────
-    const float AnimFPS       = 12f;   // animation frames per second
+    const float AnimFPS       = 12f;
     const float SpawnInterval = 1.8f;
     const float MinSpeed      = 1.2f;
     const float MaxSpeed      = 2.8f;
+    const byte  AlphaThresh   = 12;    // pixel considered "content" if alpha > this
 
-    // ── Per-creature runtime data ─────────────────────────────────────────────
+    // ── Per-creature runtime ──────────────────────────────────────────────────
     struct LiveCreature
     {
-        public GameObject go;
-        public Material   mat;
-        public int        frameCount;
-        public float      frameDuration;  // 1 / AnimFPS
-        public float      animTimer;
-        public int        frame;
-        public float      speed;
-        public bool       movingRight;
-        public float      baseY;          // spawn Y — bob oscillates around this
-        public float      bobPhase;       // current sine phase
-        public float      bobSpeed;       // radians/sec
-        public float      bobAmp;         // world units amplitude
+        public GameObject    go;
+        public SpriteRenderer sr;
+        public Sprite[]      frames;
+        public float         animTimer;
+        public int           frame;
+        public float         speed;
+        public bool          movingRight;
+        public float         baseY;
+        public float         bobPhase;
+        public float         bobSpeed;
+        public float         bobAmp;
     }
 
-    // ── Loaded textures indexed by Defs[] ─────────────────────────────────────
-    Texture2D[]        _textures;
+    Sprite[][]         _sheets;
     List<LiveCreature> _creatures = new List<LiveCreature>();
     float              _spawnTimer;
 
-    static Mesh _quadMesh;  // shared unit quad — created once
-
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    // ── Start: load and auto-slice all sheets ─────────────────────────────────
     void Start()
     {
-        _textures = new Texture2D[Defs.Length];
+        _sheets = new Sprite[Defs.Length][];
+
         for (int i = 0; i < Defs.Length; i++)
         {
-            Texture2D tex = Resources.Load<Texture2D>("FishSheets/" + Defs[i].resourceName);
+            CreatureDef def = Defs[i];
+            Texture2D tex = Resources.Load<Texture2D>("FishSheets/" + def.resourceName);
             if (tex == null)
             {
-                Debug.LogError($"[FishAnim] Cannot load FishSheets/{Defs[i].resourceName}. " +
-                               "Check: file exists in Assets/Resources/FishSheets/, " +
+                Debug.LogError($"[FishAnim] Cannot load FishSheets/{def.resourceName}. " +
+                               "Check: file in Assets/Resources/FishSheets/, " +
                                "Texture Type = Default, Read/Write = Enabled.");
                 continue;
             }
-            tex.wrapMode   = TextureWrapMode.Clamp;   // prevents edge bleed between frames
+
+            tex.wrapMode   = TextureWrapMode.Clamp;
             tex.filterMode = FilterMode.Bilinear;
-            _textures[i]   = tex;
-            Debug.Log($"[FishAnim] Loaded {Defs[i].resourceName} ({Defs[i].frameCount} frames)");
+
+            Sprite[] frames = AutoSlice(tex, def.frameCount, def.resourceName);
+            if (frames == null || frames.Length == 0)
+            {
+                Debug.LogError($"[FishAnim] AutoSlice failed for {def.resourceName} — no content found.");
+                continue;
+            }
+
+            _sheets[i] = frames;
+            Debug.Log($"[FishAnim] {def.resourceName}: sliced {frames.Length} frames " +
+                      $"(rect0 = {frames[0].rect})");
         }
     }
 
+    // ── Auto-slice: finds exact pixel rect of each frame by reading alpha data ─
+    Sprite[] AutoSlice(Texture2D tex, int frameCount, string name)
+    {
+        int w = tex.width, h = tex.height;
+        Color32[] pixels = tex.GetPixels32();
+
+        // 1. Find vertical content extent (rows that have any opaque pixel)
+        int yMin = h, yMax = -1;
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                if (pixels[y * w + x].a > AlphaThresh)
+                {
+                    if (y < yMin) yMin = y;
+                    if (y > yMax) yMax = y;
+                    break;
+                }
+            }
+        }
+
+        if (yMax < yMin)
+        {
+            Debug.LogError($"[FishAnim] {name}: no opaque pixels found at all");
+            return null;
+        }
+
+        int contentH = yMax - yMin + 1;
+        // Unity Texture2D Y=0 is bottom; PIL/image Y=0 is top — convert
+        int unityY = h - yMax - 1;
+
+        // 2. Find horizontal content columns (columns that have any opaque pixel in content rows)
+        bool[] hasContent = new bool[w];
+        for (int x = 0; x < w; x++)
+        {
+            for (int y = yMin; y <= yMax; y++)
+            {
+                if (pixels[y * w + x].a > AlphaThresh)
+                {
+                    hasContent[x] = true;
+                    break;
+                }
+            }
+        }
+
+        // 3. Group content columns into frame regions (separated by transparent gaps)
+        var regions = new List<(int start, int end)>();
+        bool inRegion = false;
+        int rStart = 0;
+        for (int x = 0; x < w; x++)
+        {
+            if (hasContent[x] && !inRegion)  { inRegion = true; rStart = x; }
+            if (!hasContent[x] && inRegion)  { inRegion = false; regions.Add((rStart, x - 1)); }
+        }
+        if (inRegion) regions.Add((rStart, w - 1));
+
+        Debug.Log($"[FishAnim] {name}: detected {regions.Count} content regions " +
+                  $"(expected {frameCount}), yMin={yMin} yMax={yMax} unityY={unityY} contentH={contentH}");
+
+        // 4. If detected frame count doesn't match expectation, warn but use what we found
+        if (regions.Count != frameCount)
+            Debug.LogWarning($"[FishAnim] {name}: expected {frameCount} frames but detected {regions.Count}. " +
+                             "Using detected count. Update frameCount in Defs[] to match.");
+
+        if (regions.Count == 0) return null;
+
+        // 5. Build sprites — one per detected region, cropped exactly to content
+        int maxFrameW = 0;
+        foreach (var r in regions) maxFrameW = Mathf.Max(maxFrameW, r.end - r.start + 1);
+
+        var sprites = new Sprite[regions.Count];
+        for (int i = 0; i < regions.Count; i++)
+        {
+            int fx = regions[i].start;
+            int fw = regions[i].end - regions[i].start + 1;
+            // Rect in Unity coords (Y from bottom)
+            Rect rect = new Rect(fx, unityY, fw, contentH);
+            sprites[i] = Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f);
+        }
+
+        return sprites;
+    }
+
+    // ── Update ────────────────────────────────────────────────────────────────
     void Update()
     {
         if (GameBootstrap.Instance == null) return;
@@ -98,41 +193,37 @@ public class BackgroundFishAnimator : MonoBehaviour
             Spawn();
         }
 
-        float dt  = Time.deltaTime;
-        Camera cam = Camera.main;
-        float killX = cam.orthographicSize * cam.aspect + 5f;
+        float  dt   = Time.deltaTime;
+        Camera cam  = Camera.main;
+        float  kill = cam.orthographicSize * cam.aspect + 5f;
 
         for (int i = _creatures.Count - 1; i >= 0; i--)
         {
             LiveCreature c = _creatures[i];
             if (c.go == null) { _creatures.RemoveAt(i); continue; }
 
-            // ── Smooth horizontal movement ────────────────────────────────────
-            float dir = c.movingRight ? 1f : -1f;
-            float newX = c.go.transform.position.x + dir * c.speed * dt;
+            // Smooth horizontal movement
+            float newX = c.go.transform.position.x + (c.movingRight ? 1f : -1f) * c.speed * dt;
 
-            // ── Smooth vertical bob — absolute Y, never accumulates ───────────
+            // Absolute-Y bob — never accumulates, always oscillates around baseY
             c.bobPhase += c.bobSpeed * dt;
             float newY = c.baseY + Mathf.Sin(c.bobPhase) * c.bobAmp;
 
             c.go.transform.position = new Vector3(newX, newY, 0f);
 
-            // ── UV-offset animation — no mesh rebuild, no flicker ─────────────
+            // Frame advance
             c.animTimer += dt;
-            if (c.animTimer >= c.frameDuration)
+            if (c.animTimer >= 1f / AnimFPS)
             {
-                c.animTimer -= c.frameDuration;
-                c.frame = (c.frame + 1) % c.frameCount;
-                // Slide the UV window to the current frame column
-                c.mat.mainTextureOffset = new Vector2((float)c.frame / c.frameCount, 0f);
+                c.animTimer -= 1f / AnimFPS;
+                c.frame = (c.frame + 1) % c.frames.Length;
+                c.sr.sprite = c.frames[c.frame];
             }
 
             _creatures[i] = c;
 
-            // ── Cull off-screen ───────────────────────────────────────────────
-            if ((!c.movingRight && newX < -killX) || (c.movingRight && newX > killX))
+            if ((!c.movingRight && newX < -kill) || (c.movingRight && newX > kill))
             {
-                Destroy(c.mat);   // material is per-instance — must destroy manually
                 Destroy(c.go);
                 _creatures.RemoveAt(i);
             }
@@ -142,122 +233,67 @@ public class BackgroundFishAnimator : MonoBehaviour
     // ── Spawn ─────────────────────────────────────────────────────────────────
     void Spawn()
     {
-        // Pick a random loaded creature type
         int defIdx = -1;
         for (int attempt = 0; attempt < 15; attempt++)
         {
             int t = Random.Range(0, Defs.Length);
-            if (_textures[t] != null) { defIdx = t; break; }
+            if (_sheets != null && _sheets[t] != null && _sheets[t].Length > 0)
+            { defIdx = t; break; }
         }
         if (defIdx < 0) return;
 
-        CreatureDef def = Defs[defIdx];
-        Texture2D   tex = _textures[defIdx];
+        CreatureDef def    = Defs[defIdx];
+        Sprite[]    frames = _sheets[defIdx];
 
         Camera cam  = Camera.main;
-        float halfW = cam.orthographicSize * cam.aspect;
-        float halfH = cam.orthographicSize;
+        float  halfW = cam.orthographicSize * cam.aspect;
+        float  halfH = cam.orthographicSize;
 
-        bool  movingRight = Random.Range(0f, 1f) < 0.15f;
-        float spawnX      = movingRight ? -(halfW + 2f) : (halfW + 2f);
-
+        bool  right  = Random.Range(0f, 1f) < 0.15f;
+        float spawnX = right ? -(halfW + 2f) : (halfW + 2f);
         float groundTop = GameBootstrap.Instance != null
-            ? GameBootstrap.Instance.groundTop
-            : -halfH + 2.5f;
+            ? GameBootstrap.Instance.groundTop : -halfH + 2.5f;
         float spawnY = Random.Range(groundTop + 0.5f, halfH * 0.75f);
 
-        // Depth band: 0=far (slow, small, dim), 1=mid, 2=near
-        int   band       = Random.Range(0, 3);
-        float speedMul   = 1f + band * 0.35f;
-        float scaleMul   = 0.55f + band * 0.25f;
-        float alpha      = 0.22f + band * 0.16f;
+        int   band      = Random.Range(0, 3);
+        float scaleMul  = 0.55f + band * 0.25f;
+        float alpha     = 0.22f + band * 0.16f;
 
-        // Build a quad sized to match one animation frame
-        int   frameW  = tex.width / def.frameCount;
-        int   frameH  = tex.height;
-        float aspect  = (float)frameW / frameH;
-        float worldH  = def.scale * scaleMul;
-        float worldW  = worldH * aspect;
-
-        GameObject go = new GameObject($"BgCreature_{def.resourceName}_{band}");
+        GameObject go = new GameObject($"BgCreature_{def.resourceName}");
         go.transform.position = new Vector3(spawnX, spawnY, 0f);
 
-        MeshFilter mf = go.AddComponent<MeshFilter>();
-        mf.mesh = GetQuadMesh();
+        SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite         = frames[Random.Range(0, frames.Length)];
+        sr.sortingOrder   = def.sortOrder + band;
+        Color col         = Color.white; col.a = alpha;
+        sr.color          = col;
 
-        MeshRenderer mr = go.AddComponent<MeshRenderer>();
-        mr.shadowCastingMode    = UnityEngine.Rendering.ShadowCastingMode.Off;
-        mr.receiveShadows       = false;
-        mr.sortingLayerName     = "Default";
-        mr.sortingOrder         = def.sortOrder + band;
-
-        // Per-instance material so each creature has its own UV offset
-        Material mat = new Material(Shader.Find("Sprites/Default"));
-        mat.mainTexture      = tex;
-        // Show only one frame column at a time
-        mat.mainTextureScale  = new Vector2(1f / def.frameCount, 1f);
-        mat.mainTextureOffset = new Vector2(0f, 0f);
-        Color col = Color.white;
-        col.a     = alpha;
-        mat.color = col;
-        mr.material = mat;
-
-        // Scale: X flipped when moving right so fish faces travel direction
-        float flipX = movingRight ? -1f : 1f;
-        go.transform.localScale = new Vector3(worldW * flipX, worldH, 1f);
+        float s     = def.scale * scaleMul;
+        float flipX = right ? -1f : 1f;
+        go.transform.localScale = new Vector3(s * flipX, s, 1f);
 
         _creatures.Add(new LiveCreature
         {
-            go            = go,
-            mat           = mat,
-            frameCount    = def.frameCount,
-            frameDuration = 1f / AnimFPS,
-            animTimer     = Random.Range(0f, 1f / AnimFPS), // stagger so not all flip at once
-            frame         = Random.Range(0, def.frameCount),
-            speed         = Random.Range(MinSpeed, MaxSpeed) * speedMul,
-            movingRight   = movingRight,
-            baseY         = spawnY,
-            bobPhase      = Random.Range(0f, Mathf.PI * 2f),
-            bobSpeed      = Random.Range(0.8f, 1.8f),
-            bobAmp        = Random.Range(0.05f, 0.18f),
+            go          = go,
+            sr          = sr,
+            frames      = frames,
+            animTimer   = Random.Range(0f, 1f / AnimFPS),
+            frame       = Random.Range(0, frames.Length),
+            speed       = Random.Range(MinSpeed, MaxSpeed) * (1f + band * 0.35f),
+            movingRight = right,
+            baseY       = spawnY,
+            bobPhase    = Random.Range(0f, Mathf.PI * 2f),
+            bobSpeed    = Random.Range(0.8f, 1.8f),
+            bobAmp      = Random.Range(0.05f, 0.18f),
         });
-    }
-
-    // ── Shared unit quad mesh ─────────────────────────────────────────────────
-    static Mesh GetQuadMesh()
-    {
-        if (_quadMesh != null) return _quadMesh;
-        _quadMesh = new Mesh { name = "BgFishQuad" };
-        _quadMesh.vertices  = new Vector3[] {
-            new Vector3(-0.5f, -0.5f, 0f),
-            new Vector3( 0.5f, -0.5f, 0f),
-            new Vector3(-0.5f,  0.5f, 0f),
-            new Vector3( 0.5f,  0.5f, 0f),
-        };
-        _quadMesh.triangles = new int[] { 0, 2, 1, 2, 3, 1 };
-        _quadMesh.uv        = new Vector2[] {
-            new Vector2(0, 0), new Vector2(1, 0),
-            new Vector2(0, 1), new Vector2(1, 1),
-        };
-        _quadMesh.RecalculateNormals();
-        return _quadMesh;
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
     public void ClearAll()
     {
         foreach (var c in _creatures)
-        {
-            if (c.mat != null) Destroy(c.mat);
-            if (c.go  != null) Destroy(c.go);
-        }
+            if (c.go != null) Destroy(c.go);
         _creatures.Clear();
         _spawnTimer = 0f;
-    }
-
-    void OnDestroy()
-    {
-        ClearAll();
-        _quadMesh = null;
     }
 }
