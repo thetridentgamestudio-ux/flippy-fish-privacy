@@ -21,11 +21,10 @@ public class BackgroundObjectSpawner : MonoBehaviour
     };
 
     // Floating sprite prefixes — loads all numbered variants automatically
-    // e.g. "Fish" loads Fish_1, Fish_2, Fish_3... until one is not found
-    // Add any prefix here and just add matching PNGs to Resources/BgObjects/
+    // Fish animation is now handled by BackgroundFishAnimator (animated sprite sheets).
+    // Only non-fish floaters remain here.
     private static readonly string[] FLOATING_PREFIXES = new string[]
     {
-        "Fish",
         "Jellyfish"
     };
 

@@ -72,6 +72,7 @@ private float tapBounceAmount = 20f; // pixels
     //  private Button pauseButton;
    // private TextMeshProUGUI pauseButtonText;
     bool waitingForAd = false;
+    private BackgroundFishAnimator _fishAnimator;
 private float bgWidth = 20f;
 private float _sessionStartTime = 0f;
 private Coroutine _activeToast = null;
@@ -150,6 +151,10 @@ CreateUsernameText();
     
     CreatePlayer();
     CreateSpawner();
+
+    // Animated background fish — pure code, no editor setup needed beyond texture import settings
+    GameObject fishAnimGO = new GameObject("BackgroundFishAnimator");
+    _fishAnimator = fishAnimGO.AddComponent<BackgroundFishAnimator>();
 
 
     // -----------------------------
@@ -1304,6 +1309,7 @@ public void RestartGame(bool directStart = true)
     // would always make it false by the time TriggerGameOver() checks it.
     // The flag is cleared by the solo-restart path (MP replay "Main Menu" button) explicitly.
     if (_mpReplayButton != null) { _mpReplayButton.SetActive(false); }
+    if (_fishAnimator != null) _fishAnimator.ClearAll();
     CancelInvoke(nameof(SpawnPipeRepeated));
     FirebaseGameManager manager = FindObjectOfType<FirebaseGameManager>();
 
