@@ -19,18 +19,21 @@ public class BackgroundFishAnimator : MonoBehaviour
     struct CreatureDef
     {
         public string resourceName;
-        public int    frameCount;
-        public float  scale;      // world-space height in units
+        public int    frameCount;   // total frames across all rows
+        public int    gridRows;     // 1 = single horizontal strip (default), 2 = 2-row grid, etc.
+        public float  scale;
         public int    sortOrder;
     }
 
     static readonly CreatureDef[] Defs = new CreatureDef[]
     {
+        // gridRows defaults to 0 in C# struct — treated as 1 in AutoSlice
         new CreatureDef { resourceName = "fish_blue",   frameCount = 8,  scale = 1.1f, sortOrder = -8 },
         new CreatureDef { resourceName = "fish_yellow", frameCount = 8,  scale = 1.2f, sortOrder = -7 },
         new CreatureDef { resourceName = "fish_purple", frameCount = 8,  scale = 1.2f, sortOrder = -7 },
         new CreatureDef { resourceName = "fish_green",  frameCount = 8,  scale = 1.1f, sortOrder = -8 },
         new CreatureDef { resourceName = "fish_silver", frameCount = 12, scale = 0.8f, sortOrder = -9 },
+        new CreatureDef { resourceName = "fish_school", frameCount = 8,  gridRows = 2, scale = 1.3f, sortOrder = -8 },
         new CreatureDef { resourceName = "jellyfish_1", frameCount = 8,  scale = 2.6f, sortOrder = -8 },
         new CreatureDef { resourceName = "jellyfish_2", frameCount = 8,  scale = 2.8f, sortOrder = -7 },
         new CreatureDef { resourceName = "jellyfish_3", frameCount = 8,  scale = 2.4f, sortOrder = -9 },
@@ -91,7 +94,8 @@ public class BackgroundFishAnimator : MonoBehaviour
             tex.wrapMode   = TextureWrapMode.Clamp;
             tex.filterMode = FilterMode.Bilinear;
 
-            Sprite[] frames = AutoSlice(tex, def.frameCount, def.resourceName);
+            int rows = def.gridRows <= 1 ? 1 : def.gridRows;
+            Sprite[] frames = AutoSlice(tex, def.frameCount, rows, def.resourceName);
             if (frames == null || frames.Length == 0)
             {
                 Debug.LogError($"[FishAnim] AutoSlice failed for {def.resourceName} — no content found.");
@@ -105,7 +109,8 @@ public class BackgroundFishAnimator : MonoBehaviour
     }
 
     // ── Auto-slice: finds exact pixel rect of each frame by reading alpha data ─
-    Sprite[] AutoSlice(Texture2D tex, int frameCount, string name)
+    // gridRows=1: single horizontal strip. gridRows=2: 2 rows of (frameCount/2) columns each.
+    Sprite[] AutoSlice(Texture2D tex, int frameCount, int gridRows, string name)
     {
         int w = tex.width, h = tex.height;
         Color32[] pixels = tex.GetPixels32();
@@ -166,28 +171,107 @@ public class BackgroundFishAnimator : MonoBehaviour
         Debug.Log($"[FishAnim] {name}: detected {regions.Count} content regions " +
                   $"(expected {frameCount}), yMin={yMin} yMax={yMax} unityY={unityY} contentH={contentH}");
 
-        // 4. If detected frame count doesn't match expectation, warn but use what we found
-        if (regions.Count != frameCount)
-            Debug.LogWarning($"[FishAnim] {name}: expected {frameCount} frames but detected {regions.Count}. " +
-                             "Using detected count. Update frameCount in Defs[] to match.");
-
         if (regions.Count == 0) return null;
 
-        // 5. Build sprites — one per detected region, cropped exactly to content
-        int maxFrameW = 0;
-        foreach (var r in regions) maxFrameW = Mathf.Max(maxFrameW, r.end - r.start + 1);
+        // ── Grid-row support ──────────────────────────────────────────────────
+        // For gridRows=1: use the single detected content band (current behaviour).
+        // For gridRows=2+: find horizontal row bands (separated by transparent row gaps),
+        //   slice each band into columns independently, read top→bottom, left→right.
+        if (gridRows > 1)
+            return AutoSliceGrid(tex, frameCount, gridRows, name, w, h, pixels);
+
+        // ── Single-row: build sprites from detected column regions ─────────────
+        int expectedCols = frameCount;
+        if (regions.Count != expectedCols)
+            Debug.LogWarning($"[FishAnim] {name}: expected {expectedCols} frames, detected {regions.Count}.");
 
         var sprites = new Sprite[regions.Count];
         for (int i = 0; i < regions.Count; i++)
         {
             int fx = regions[i].start;
             int fw = regions[i].end - regions[i].start + 1;
-            // Rect in Unity coords (Y from bottom)
             Rect rect = new Rect(fx, unityY, fw, contentH);
             sprites[i] = Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f);
         }
-
         return sprites;
+    }
+
+    // ── Grid slicer: for sheets with multiple rows of frames ──────────────────
+    Sprite[] AutoSliceGrid(Texture2D tex, int totalFrames, int gridRows,
+                           string name, int w, int h, Color32[] pixels)
+    {
+        int colsPerRow = totalFrames / gridRows;
+
+        // Find horizontal row bands by scanning rows for alpha content
+        bool[] rowHasContent = new bool[h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                if (pixels[y * w + x].a > AlphaThresh) { rowHasContent[y] = true; break; }
+
+        // Group content rows into bands (each band = one grid row of frames)
+        var rowBands = new List<(int yMin, int yMax)>();
+        bool inBand = false; int bStart = 0;
+        for (int y = 0; y < h; y++)
+        {
+            if (rowHasContent[y] && !inBand)  { inBand = true; bStart = y; }
+            if (!rowHasContent[y] && inBand)  { inBand = false; rowBands.Add((bStart, y - 1)); }
+        }
+        if (inBand) rowBands.Add((bStart, h - 1));
+
+        Debug.Log($"[FishAnim] {name} (grid {gridRows}r×{colsPerRow}c): detected {rowBands.Count} row bands");
+
+        if (rowBands.Count < gridRows)
+        {
+            Debug.LogWarning($"[FishAnim] {name}: expected {gridRows} row bands but found {rowBands.Count}. Falling back to single-row slice.");
+            gridRows = rowBands.Count;
+            colsPerRow = totalFrames / Mathf.Max(1, gridRows);
+        }
+
+        var allSprites = new List<Sprite>();
+
+        for (int row = gridRows - 1; row >= 0; row--) // bottom band first (Unity y=0 is bottom)
+        {
+            var band = rowBands[row];
+            int bandYMin  = band.yMin;
+            int bandYMax  = band.yMax;
+            int pad       = 2;
+            int unityY    = Mathf.Max(0, bandYMin - pad);
+            int bandH     = Mathf.Min(h, bandYMax + pad + 1) - unityY;
+
+            // Find content columns within this row band
+            bool[] colHasContent = new bool[w];
+            for (int x = 0; x < w; x++)
+                for (int y = bandYMin; y <= bandYMax; y++)
+                    if (pixels[y * w + x].a > AlphaThresh) { colHasContent[x] = true; break; }
+
+            var colRegions = new List<(int start, int end)>();
+            bool inRegion = false; int rStart = 0;
+            for (int x = 0; x < w; x++)
+            {
+                if (colHasContent[x] && !inRegion)  { inRegion = true; rStart = x; }
+                if (!colHasContent[x] && inRegion)  { inRegion = false; colRegions.Add((rStart, x - 1)); }
+            }
+            if (inRegion) colRegions.Add((rStart, w - 1));
+
+            Debug.Log($"[FishAnim] {name} row-band {row}: y={bandYMin}-{bandYMax}, {colRegions.Count} cols detected");
+
+            foreach (var cr in colRegions)
+            {
+                int fx = cr.start, fw = cr.end - cr.start + 1;
+                Rect rect = new Rect(fx, unityY, fw, bandH);
+                allSprites.Add(Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f));
+            }
+        }
+
+        // Re-order: top row frames first, then bottom row (visual reading order)
+        // We collected bottom→top above; reverse so top-row plays first in animation
+        int perRow = allSprites.Count / gridRows;
+        var ordered = new Sprite[allSprites.Count];
+        for (int r = 0; r < gridRows; r++)
+            for (int c = 0; c < perRow; c++)
+                ordered[r * perRow + c] = allSprites[(gridRows - 1 - r) * perRow + c];
+
+        return ordered;
     }
 
     // ── Update ────────────────────────────────────────────────────────────────
@@ -259,11 +343,11 @@ public class BackgroundFishAnimator : MonoBehaviour
     // ── Spawn helpers ─────────────────────────────────────────────────────────
     void SpawnFish()
     {
-        // Pick randomly from fish types only (indices 0-4)
+        // Fish are indices 0-5 (fish_blue..fish_school); jellyfish start at 6
         int defIdx = -1;
         for (int attempt = 0; attempt < 15; attempt++)
         {
-            int t = Random.Range(0, 5); // fish are first 5 entries
+            int t = Random.Range(0, 6); // fish are first 6 entries
             if (_sheets != null && _sheets[t] != null && _sheets[t].Length > 0)
             { defIdx = t; break; }
         }
@@ -273,11 +357,11 @@ public class BackgroundFishAnimator : MonoBehaviour
 
     void SpawnJellyfish()
     {
-        // Pick randomly from jellyfish types only (indices 5-9)
+        // Jellyfish start at index 6 now (fish_school is index 5)
         int defIdx = -1;
         for (int attempt = 0; attempt < 15; attempt++)
         {
-            int t = Random.Range(5, Defs.Length);
+            int t = Random.Range(6, Defs.Length);
             if (_sheets != null && _sheets[t] != null && _sheets[t].Length > 0)
             { defIdx = t; break; }
         }
