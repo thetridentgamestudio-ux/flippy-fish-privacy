@@ -19,13 +19,11 @@ public class BackgroundFishAnimator : MonoBehaviour
 
     static readonly FishDef[] FishDefs = new FishDef[]
     {
-        // scale is world-space base size; camera orthographicSize=12.5 so screen height=25 units.
-        // A 16px frame at 100 PPU = 0.16 world units, so scale ~4-5 gives a visible ~0.7-0.8 unit fish.
-        new FishDef { resourceName = "fish_blue",   frameCount = 8,  scale = 4.5f, layer = -8 },
-        new FishDef { resourceName = "fish_yellow", frameCount = 8,  scale = 5.0f, layer = -7 },
-        new FishDef { resourceName = "fish_purple", frameCount = 8,  scale = 5.0f, layer = -7 },
-        new FishDef { resourceName = "fish_green",  frameCount = 8,  scale = 4.5f, layer = -8 },
-        new FishDef { resourceName = "fish_silver", frameCount = 12, scale = 3.5f, layer = -9 },
+        new FishDef { resourceName = "fish_blue",   frameCount = 8,  scale = 1.1f, layer = -8 },
+        new FishDef { resourceName = "fish_yellow", frameCount = 8,  scale = 1.2f, layer = -7 },
+        new FishDef { resourceName = "fish_purple", frameCount = 8,  scale = 1.2f, layer = -7 },
+        new FishDef { resourceName = "fish_green",  frameCount = 8,  scale = 1.1f, layer = -8 },
+        new FishDef { resourceName = "fish_silver", frameCount = 12, scale = 0.8f, layer = -9 },
     };
 
     // ── Tuning ────────────────────────────────────────────────────────────────
@@ -162,7 +160,7 @@ public class BackgroundFishAnimator : MonoBehaviour
         int band = Random.Range(0, 3); // 0 = far, 1 = mid, 2 = near
         float speedMulti  = 1f + band * 0.4f;
         float scaleMulti  = 0.6f + band * 0.3f;
-        float alpha       = 0.4f + band * 0.25f; // far = dimmer
+        float alpha       = 0.25f + band * 0.15f; // far=0.25, mid=0.40, near=0.55 — subtle background
 
         GameObject go = new GameObject($"BgFish_{def.resourceName}_{band}");
         go.transform.position = new Vector3(spawnX, spawnY, 0f);
