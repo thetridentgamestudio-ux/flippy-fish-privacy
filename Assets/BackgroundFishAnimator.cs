@@ -38,10 +38,10 @@ public class BackgroundFishAnimator : MonoBehaviour
     };
 
     // ── Tuning ────────────────────────────────────────────────────────────────
-    const float AnimFPS      = 10f;   // frame rate for the flip-book animation
-    const float SpawnInterval = 1.8f; // seconds between each new fish
-    const float MinSpeed      = 1.5f;
-    const float MaxSpeed      = 3.5f;
+    const float AnimFPS      = 18f;   // higher = smoother frame transitions
+    const float SpawnInterval = 1.8f;
+    const float MinSpeed      = 1.2f;
+    const float MaxSpeed      = 2.8f;
 
     // ── Runtime state ─────────────────────────────────────────────────────────
     struct LiveFish
@@ -52,7 +52,10 @@ public class BackgroundFishAnimator : MonoBehaviour
         public float     animTimer;
         public int       frame;
         public float     speed;
-        public bool      movingRight; // false = left (normal), true = right (rare)
+        public bool      movingRight;
+        public float     bobPhase;   // current sine phase for vertical bob
+        public float     bobSpeed;   // how fast it bobs
+        public float     bobAmp;     // amplitude in world units
     }
 
     Sprite[][]         _sheets;   // pre-sliced frame arrays per fish type
@@ -114,15 +117,21 @@ public class BackgroundFishAnimator : MonoBehaviour
             LiveFish f = _fish[i];
             if (f.go == null) { _fish.RemoveAt(i); continue; }
 
-            // Move
+            // Smooth horizontal movement
             float dir = f.movingRight ? 1f : -1f;
-            f.go.transform.position += Vector3.right * dir * f.speed * dt;
+            Vector3 pos = f.go.transform.position;
+            pos.x += dir * f.speed * dt;
+
+            // Smooth sine-wave vertical bob — removes the rigid straight-line feel
+            f.bobPhase += f.bobSpeed * dt;
+            pos.y += Mathf.Sin(f.bobPhase) * f.bobAmp * dt;
+            f.go.transform.position = pos;
 
             // Advance animation frame
             f.animTimer += dt;
             if (f.animTimer >= 1f / AnimFPS)
             {
-                f.animTimer = 0f;
+                f.animTimer -= 1f / AnimFPS; // subtract instead of reset — prevents timer drift
                 f.frame = (f.frame + 1) % f.frames.Length;
                 f.sr.sprite = f.frames[f.frame];
             }
@@ -193,10 +202,13 @@ public class BackgroundFishAnimator : MonoBehaviour
             go          = go,
             sr          = sr,
             frames      = frames,
-            animTimer   = 0f,
-            frame       = Random.Range(0, frames.Length), // random start frame
+            animTimer   = Random.Range(0f, 1f / AnimFPS), // stagger so all fish don't flip frames at once
+            frame       = Random.Range(0, frames.Length),
             speed       = Random.Range(MinSpeed, MaxSpeed) * speedMulti,
             movingRight = movingRight,
+            bobPhase    = Random.Range(0f, Mathf.PI * 2f), // random start so they don't bob in sync
+            bobSpeed    = Random.Range(1.2f, 2.5f),        // gentle random bob frequency
+            bobAmp      = Random.Range(0.08f, 0.20f),      // subtle vertical amplitude
         };
         _fish.Add(lf);
     }
