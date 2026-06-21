@@ -19,11 +19,13 @@ public class BackgroundFishAnimator : MonoBehaviour
 
     static readonly FishDef[] FishDefs = new FishDef[]
     {
-        new FishDef { resourceName = "fish_blue",   frameCount = 8,  scale = 0.08f, layer = -8 },
-        new FishDef { resourceName = "fish_yellow", frameCount = 8,  scale = 0.09f, layer = -7 },
-        new FishDef { resourceName = "fish_purple", frameCount = 8,  scale = 0.09f, layer = -7 },
-        new FishDef { resourceName = "fish_green",  frameCount = 8,  scale = 0.08f, layer = -8 },
-        new FishDef { resourceName = "fish_silver", frameCount = 12, scale = 0.06f, layer = -9 },
+        // scale is world-space base size; camera orthographicSize=12.5 so screen height=25 units.
+        // A 16px frame at 100 PPU = 0.16 world units, so scale ~4-5 gives a visible ~0.7-0.8 unit fish.
+        new FishDef { resourceName = "fish_blue",   frameCount = 8,  scale = 4.5f, layer = -8 },
+        new FishDef { resourceName = "fish_yellow", frameCount = 8,  scale = 5.0f, layer = -7 },
+        new FishDef { resourceName = "fish_purple", frameCount = 8,  scale = 5.0f, layer = -7 },
+        new FishDef { resourceName = "fish_green",  frameCount = 8,  scale = 4.5f, layer = -8 },
+        new FishDef { resourceName = "fish_silver", frameCount = 12, scale = 3.5f, layer = -9 },
     };
 
     // ── Tuning ────────────────────────────────────────────────────────────────
@@ -59,7 +61,7 @@ public class BackgroundFishAnimator : MonoBehaviour
             Texture2D tex = Resources.Load<Texture2D>("FishSheets/" + def.resourceName);
             if (tex == null)
             {
-                Debug.LogWarning($"BackgroundFishAnimator: missing texture FishSheets/{def.resourceName}");
+                Debug.LogError($"[FishAnim] FAILED to load FishSheets/{def.resourceName} — check: 1) file is in Assets/Resources/FishSheets/, 2) Texture Type = Default, 3) Read/Write Enabled in Inspector");
                 _sheets[i] = null;
                 continue;
             }
@@ -75,14 +77,15 @@ public class BackgroundFishAnimator : MonoBehaviour
                 _sheets[i][f] = Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f);
             }
 
-            Debug.Log($"BackgroundFishAnimator: loaded {def.resourceName} ({def.frameCount} frames, {frameW}x{frameH}px each)");
+            Debug.Log($"[FishAnim] Loaded {def.resourceName}: {def.frameCount} frames @ {frameW}x{frameH}px, world size ~{frameH/100f*def.scale:F2} units tall");
         }
     }
 
     void Update()
     {
         if (GameBootstrap.Instance == null) return;
-        if (GameBootstrap.Instance.CurrentState != GameBootstrap.GameState.Playing) return;
+        // Fish swim in background during menu AND gameplay — pause only on game-over
+        if (GameBootstrap.Instance.CurrentState == GameBootstrap.GameState.GameOver) return;
 
         // Spawn timer
         _spawnTimer -= Time.deltaTime;
