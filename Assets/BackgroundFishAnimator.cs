@@ -43,8 +43,8 @@ public class BackgroundFishAnimator : MonoBehaviour
     const float JellyDelay        = 20f;   // seconds before first jellyfish appears
     const float JellySpawnInterval = 18f;  // one jellyfish every 18 seconds
     const int   MaxJellyOnScreen   = 1;    // never more than 1 jellyfish visible at once
-    const float MinSpeed           = 0.8f;
-    const float MaxSpeed           = 1.6f;
+    const float MinSpeed           = 1.5f;
+    const float MaxSpeed           = 3.5f;
     const byte  AlphaThresh        = 12;
 
     // ── Per-creature runtime ──────────────────────────────────────────────────
