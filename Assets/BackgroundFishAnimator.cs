@@ -197,81 +197,95 @@ public class BackgroundFishAnimator : MonoBehaviour
     }
 
     // ── Grid slicer: for sheets with multiple rows of frames ──────────────────
+    // Handles two cases:
+    //   A) Sheet has transparent gaps between frames → gap-detect each cell
+    //   B) Sheet fills edge-to-edge (no gaps) → uniform equal-size grid division
     Sprite[] AutoSliceGrid(Texture2D tex, int totalFrames, int gridRows,
                            string name, int w, int h, Color32[] pixels)
     {
         int colsPerRow = totalFrames / gridRows;
+        int cellW      = w / colsPerRow;
+        int cellH      = h / gridRows;
 
-        // Find horizontal row bands by scanning rows for alpha content
+        // Try gap-detection for rows first
         bool[] rowHasContent = new bool[h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
                 if (pixels[y * w + x].a > AlphaThresh) { rowHasContent[y] = true; break; }
 
-        // Group content rows into bands (each band = one grid row of frames)
         var rowBands = new List<(int yMin, int yMax)>();
         bool inBand = false; int bStart = 0;
         for (int y = 0; y < h; y++)
         {
-            if (rowHasContent[y] && !inBand)  { inBand = true; bStart = y; }
+            if (rowHasContent[y]  && !inBand) { inBand = true;  bStart = y; }
             if (!rowHasContent[y] && inBand)  { inBand = false; rowBands.Add((bStart, y - 1)); }
         }
         if (inBand) rowBands.Add((bStart, h - 1));
 
-        Debug.Log($"[FishAnim] {name} (grid {gridRows}r×{colsPerRow}c): detected {rowBands.Count} row bands");
+        bool useUniformGrid = rowBands.Count != gridRows;
+        Debug.Log($"[FishAnim] {name}: {rowBands.Count} row bands detected " +
+                  $"(need {gridRows}) → {(useUniformGrid ? "UNIFORM grid" : "gap-detect")} mode, cell={cellW}x{cellH}");
 
-        if (rowBands.Count < gridRows)
+        var sprites = new Sprite[totalFrames];
+
+        if (useUniformGrid)
         {
-            Debug.LogWarning($"[FishAnim] {name}: expected {gridRows} row bands but found {rowBands.Count}. Falling back to single-row slice.");
-            gridRows = rowBands.Count;
-            colsPerRow = totalFrames / Mathf.Max(1, gridRows);
-        }
-
-        var allSprites = new List<Sprite>();
-
-        for (int row = gridRows - 1; row >= 0; row--) // bottom band first (Unity y=0 is bottom)
-        {
-            var band = rowBands[row];
-            int bandYMin  = band.yMin;
-            int bandYMax  = band.yMax;
-            int pad       = 2;
-            int unityY    = Mathf.Max(0, bandYMin - pad);
-            int bandH     = Mathf.Min(h, bandYMax + pad + 1) - unityY;
-
-            // Find content columns within this row band
-            bool[] colHasContent = new bool[w];
-            for (int x = 0; x < w; x++)
-                for (int y = bandYMin; y <= bandYMax; y++)
-                    if (pixels[y * w + x].a > AlphaThresh) { colHasContent[x] = true; break; }
-
-            var colRegions = new List<(int start, int end)>();
-            bool inRegion = false; int rStart = 0;
-            for (int x = 0; x < w; x++)
+            // Case B: no transparent gaps — divide sheet into equal-size cells.
+            // Unity GetPixels32 y=0=bottom; image row 0 = top visually.
+            // We read top-row first (left→right), then bottom row, etc.
+            // Top row in image = highest Unity y values.
+            for (int r = 0; r < gridRows; r++)          // r=0 = top visual row
             {
-                if (colHasContent[x] && !inRegion)  { inRegion = true; rStart = x; }
-                if (!colHasContent[x] && inRegion)  { inRegion = false; colRegions.Add((rStart, x - 1)); }
-            }
-            if (inRegion) colRegions.Add((rStart, w - 1));
+                // Convert image row r to Unity y (image top row → Unity high y)
+                int unityRowY = h - (r + 1) * cellH;    // bottom-left y of this row in Unity coords
+                unityRowY     = Mathf.Max(0, unityRowY);
+                int rowH      = Mathf.Min(cellH, h - unityRowY);
 
-            Debug.Log($"[FishAnim] {name} row-band {row}: y={bandYMin}-{bandYMax}, {colRegions.Count} cols detected");
-
-            foreach (var cr in colRegions)
-            {
-                int fx = cr.start, fw = cr.end - cr.start + 1;
-                Rect rect = new Rect(fx, unityY, fw, bandH);
-                allSprites.Add(Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f));
+                for (int c = 0; c < colsPerRow; c++)    // c=0 = leftmost column
+                {
+                    int fx   = c * cellW;
+                    int fw   = (c == colsPerRow - 1) ? w - fx : cellW; // last col gets remainder
+                    Rect rect = new Rect(fx, unityRowY, fw, rowH);
+                    sprites[r * colsPerRow + c] = Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f);
+                }
             }
         }
+        else
+        {
+            // Case A: transparent gaps exist — use detected bands, gap-detect columns per band
+            // rowBands[0] = bottom visual row in Unity coords (lowest y)
+            for (int row = gridRows - 1; row >= 0; row--) // row=gridRows-1 → top visual row
+            {
+                int bandIdx  = gridRows - 1 - row;          // maps visual-top → rowBands index
+                var band     = rowBands[Mathf.Min(bandIdx, rowBands.Count - 1)];
+                int unityY   = Mathf.Max(0, band.yMin - 2);
+                int bandH    = Mathf.Min(h, band.yMax + 3) - unityY;
 
-        // Re-order: top row frames first, then bottom row (visual reading order)
-        // We collected bottom→top above; reverse so top-row plays first in animation
-        int perRow = allSprites.Count / gridRows;
-        var ordered = new Sprite[allSprites.Count];
-        for (int r = 0; r < gridRows; r++)
-            for (int c = 0; c < perRow; c++)
-                ordered[r * perRow + c] = allSprites[(gridRows - 1 - r) * perRow + c];
+                bool[] colHas = new bool[w];
+                for (int x = 0; x < w; x++)
+                    for (int y = band.yMin; y <= band.yMax; y++)
+                        if (pixels[y * w + x].a > AlphaThresh) { colHas[x] = true; break; }
 
-        return ordered;
+                var colRegions = new List<(int s, int e)>();
+                bool inReg = false; int rs = 0;
+                for (int x = 0; x < w; x++)
+                {
+                    if (colHas[x]  && !inReg) { inReg = true;  rs = x; }
+                    if (!colHas[x] && inReg)  { inReg = false; colRegions.Add((rs, x - 1)); }
+                }
+                if (inReg) colRegions.Add((rs, w - 1));
+
+                int visualRow = gridRows - 1 - row; // 0=top
+                for (int c = 0; c < colRegions.Count && c < colsPerRow; c++)
+                {
+                    int fx = colRegions[c].s, fw = colRegions[c].e - colRegions[c].s + 1;
+                    Rect rect = new Rect(fx, unityY, fw, bandH);
+                    sprites[visualRow * colsPerRow + c] = Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f);
+                }
+            }
+        }
+
+        return sprites;
     }
 
     // ── Update ────────────────────────────────────────────────────────────────
