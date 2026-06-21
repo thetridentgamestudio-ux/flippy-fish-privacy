@@ -38,11 +38,14 @@ public class BackgroundFishAnimator : MonoBehaviour
         new CreatureDef { resourceName = "jellyfish_5", frameCount = 8,  scale = 3.0f, sortOrder = -7 },
     };
 
-    const float AnimFPS       = 12f;
-    const float SpawnInterval = 1.8f;
-    const float MinSpeed      = 0.4f;
-    const float MaxSpeed      = 1.0f;
-    const byte  AlphaThresh   = 12;    // pixel considered "content" if alpha > this
+    const float AnimFPS          = 12f;
+    const float FishSpawnInterval = 2.5f;  // seconds between fish spawns
+    const float JellyDelay        = 20f;   // seconds before first jellyfish appears
+    const float JellySpawnInterval = 18f;  // one jellyfish every 18 seconds
+    const int   MaxJellyOnScreen   = 1;    // never more than 1 jellyfish visible at once
+    const float MinSpeed           = 0.8f;
+    const float MaxSpeed           = 1.6f;
+    const byte  AlphaThresh        = 12;
 
     // ── Per-creature runtime ──────────────────────────────────────────────────
     struct LiveCreature
@@ -58,11 +61,15 @@ public class BackgroundFishAnimator : MonoBehaviour
         public float         bobPhase;
         public float         bobSpeed;
         public float         bobAmp;
+        public bool          isJellyfish;
     }
 
     Sprite[][]         _sheets;
-    List<LiveCreature> _creatures = new List<LiveCreature>();
-    float              _spawnTimer;
+    List<LiveCreature> _creatures    = new List<LiveCreature>();
+    float              _fishTimer    = 0f;
+    float              _jellyTimer   = JellyDelay;  // starts counting down after JellyDelay
+    float              _elapsedTime  = 0f;
+    int                _jellyCount   = 0;           // jellyfish currently on screen
 
     // ── Start: load and auto-slice all sheets ─────────────────────────────────
     void Start()
@@ -189,11 +196,26 @@ public class BackgroundFishAnimator : MonoBehaviour
         if (GameBootstrap.Instance == null) return;
         if (GameBootstrap.Instance.CurrentState == GameBootstrap.GameState.GameOver) return;
 
-        _spawnTimer -= Time.deltaTime;
-        if (_spawnTimer <= 0f)
+        float dt2 = Time.deltaTime;
+        _elapsedTime += dt2;
+
+        // Fish spawn immediately and continuously
+        _fishTimer -= dt2;
+        if (_fishTimer <= 0f)
         {
-            _spawnTimer = SpawnInterval + Random.Range(-0.4f, 0.4f);
-            Spawn();
+            _fishTimer = FishSpawnInterval + Random.Range(-0.5f, 0.5f);
+            SpawnFish();
+        }
+
+        // Jellyfish: wait JellyDelay seconds, then max 1 on screen at a time
+        if (_elapsedTime >= JellyDelay)
+        {
+            _jellyTimer -= dt2;
+            if (_jellyTimer <= 0f && _jellyCount < MaxJellyOnScreen)
+            {
+                _jellyTimer = JellySpawnInterval + Random.Range(-2f, 2f);
+                SpawnJellyfish();
+            }
         }
 
         float  dt   = Time.deltaTime;
@@ -227,26 +249,49 @@ public class BackgroundFishAnimator : MonoBehaviour
 
             if ((!c.movingRight && newX < -kill) || (c.movingRight && newX > kill))
             {
+                if (c.isJellyfish) _jellyCount--;
                 Destroy(c.go);
                 _creatures.RemoveAt(i);
             }
         }
     }
 
-    // ── Spawn ─────────────────────────────────────────────────────────────────
-    void Spawn()
+    // ── Spawn helpers ─────────────────────────────────────────────────────────
+    void SpawnFish()
     {
+        // Pick randomly from fish types only (indices 0-4)
         int defIdx = -1;
         for (int attempt = 0; attempt < 15; attempt++)
         {
-            int t = Random.Range(0, Defs.Length);
+            int t = Random.Range(0, 5); // fish are first 5 entries
             if (_sheets != null && _sheets[t] != null && _sheets[t].Length > 0)
             { defIdx = t; break; }
         }
         if (defIdx < 0) return;
+        SpawnCreature(defIdx, false);
+    }
 
-        CreatureDef def    = Defs[defIdx];
-        Sprite[]    frames = _sheets[defIdx];
+    void SpawnJellyfish()
+    {
+        // Pick randomly from jellyfish types only (indices 5-9)
+        int defIdx = -1;
+        for (int attempt = 0; attempt < 15; attempt++)
+        {
+            int t = Random.Range(5, Defs.Length);
+            if (_sheets != null && _sheets[t] != null && _sheets[t].Length > 0)
+            { defIdx = t; break; }
+        }
+        if (defIdx < 0) return;
+        _jellyCount++;
+        SpawnCreature(defIdx, true);
+    }
+
+    void SpawnCreature(int defIdx, bool isJellyfish)
+    {
+        int defIdx2 = defIdx; // keep original name for clarity
+
+        CreatureDef def    = Defs[defIdx2];
+        Sprite[]    frames = _sheets[defIdx2];
 
         Camera cam  = Camera.main;
         float  halfW = cam.orthographicSize * cam.aspect;
@@ -288,6 +333,7 @@ public class BackgroundFishAnimator : MonoBehaviour
             bobPhase    = Random.Range(0f, Mathf.PI * 2f),
             bobSpeed    = Random.Range(0.8f, 1.8f),
             bobAmp      = Random.Range(0.05f, 0.18f),
+            isJellyfish = isJellyfish,
         });
     }
 
@@ -297,6 +343,9 @@ public class BackgroundFishAnimator : MonoBehaviour
         foreach (var c in _creatures)
             if (c.go != null) Destroy(c.go);
         _creatures.Clear();
-        _spawnTimer = 0f;
+        _fishTimer   = 0f;
+        _jellyTimer  = JellyDelay;
+        _elapsedTime = 0f;
+        _jellyCount  = 0;
     }
 }
