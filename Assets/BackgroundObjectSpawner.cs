@@ -20,13 +20,8 @@ public class BackgroundObjectSpawner : MonoBehaviour
         "chest_closed1"
     };
 
-    // Floating sprite prefixes — loads all numbered variants automatically
-    // Fish animation is now handled by BackgroundFishAnimator (animated sprite sheets).
-    // Only non-fish floaters remain here.
-    private static readonly string[] FLOATING_PREFIXES = new string[]
-    {
-        "Jellyfish"
-    };
+    // Floating sprites now fully handled by BackgroundFishAnimator (fish + jellyfish).
+    private static readonly string[] FLOATING_PREFIXES = new string[] { };
 
     private List<Sprite> sprites = new List<Sprite>();
     private List<Sprite> floatingSprites = new List<Sprite>();

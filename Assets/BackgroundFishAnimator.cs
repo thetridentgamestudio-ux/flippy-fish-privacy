@@ -19,11 +19,20 @@ public class BackgroundFishAnimator : MonoBehaviour
 
     static readonly FishDef[] FishDefs = new FishDef[]
     {
+        // Fish — horizontal animation strips
         new FishDef { resourceName = "fish_blue",   frameCount = 8,  scale = 1.1f, layer = -8 },
         new FishDef { resourceName = "fish_yellow", frameCount = 8,  scale = 1.2f, layer = -7 },
         new FishDef { resourceName = "fish_purple", frameCount = 8,  scale = 1.2f, layer = -7 },
         new FishDef { resourceName = "fish_green",  frameCount = 8,  scale = 1.1f, layer = -8 },
         new FishDef { resourceName = "fish_silver", frameCount = 12, scale = 0.8f, layer = -9 },
+
+        // Jellyfish — single-frame sprites (frameCount=1 treats the whole PNG as one sprite)
+        // If your jellyfish PNGs have multiple animation frames in a row, change frameCount to match.
+        new FishDef { resourceName = "jellyfish_1", frameCount = 1,  scale = 1.3f, layer = -8 },
+        new FishDef { resourceName = "jellyfish_2", frameCount = 1,  scale = 1.4f, layer = -7 },
+        new FishDef { resourceName = "jellyfish_3", frameCount = 1,  scale = 1.2f, layer = -9 },
+        new FishDef { resourceName = "jellyfish_4", frameCount = 1,  scale = 1.3f, layer = -8 },
+        new FishDef { resourceName = "jellyfish_5", frameCount = 1,  scale = 1.5f, layer = -7 },
     };
 
     // ── Tuning ────────────────────────────────────────────────────────────────
