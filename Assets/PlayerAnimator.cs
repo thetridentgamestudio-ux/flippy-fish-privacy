@@ -56,7 +56,17 @@ public class PlayerAnimator : MonoBehaviour
         tex.wrapMode   = TextureWrapMode.Clamp;
         tex.filterMode = FilterMode.Bilinear;
 
-        _frames = SliceGrid(tex);
+        // Calculate PPU so animated frames match the original sprite's world height exactly.
+        // Original intrinsic height = sprite.rect.height / sprite.pixelsPerUnit.
+        // We want: frameH / targetPPU = origIntrinsicH  →  targetPPU = frameH / origIntrinsicH
+        float origIntrinsicH = 1f;
+        if (_sr.sprite != null)
+            origIntrinsicH = _sr.sprite.rect.height / _sr.sprite.pixelsPerUnit;
+        int frameH    = tex.height / GridRows;
+        float targetPPU = (origIntrinsicH > 0f) ? frameH / origIntrinsicH : 100f;
+        Debug.Log($"[PlayerAnim] origIntrinsicH={origIntrinsicH:F3} frameH={frameH} targetPPU={targetPPU:F1}");
+
+        _frames = SliceGrid(tex, targetPPU);
         if (_frames == null || _frames.Length == 0)
         {
             Debug.LogWarning("[PlayerAnim] Failed to slice Fish_Default.png.");
@@ -128,7 +138,7 @@ public class PlayerAnimator : MonoBehaviour
     }
 
     // ── Grid slicer (same logic as BackgroundFishAnimator) ────────────────────
-    Sprite[] SliceGrid(Texture2D tex)
+    Sprite[] SliceGrid(Texture2D tex, float ppu = 100f)
     {
         int w          = tex.width;
         int h          = tex.height;
@@ -169,13 +179,12 @@ public class PlayerAnimator : MonoBehaviour
                     int fx = c * cellW;
                     int fw = (c == colsPerRow - 1) ? w - fx : cellW;
                     sprites[r * colsPerRow + c] = Sprite.Create(
-                        tex, new Rect(fx, unityY, fw, rowH), new Vector2(0.5f, 0.5f), 100f);
+                        tex, new Rect(fx, unityY, fw, rowH), new Vector2(0.5f, 0.5f), ppu);
                 }
             }
         }
         else
         {
-            // Gap-detect: find row bands then column regions per band
             var rowBands = new System.Collections.Generic.List<(int yMin, int yMax)>();
             inBand = false; int bs = 0;
             for (int y = 0; y < h; y++)
@@ -187,7 +196,7 @@ public class PlayerAnimator : MonoBehaviour
 
             for (int r = 0; r < GridRows && r < rowBands.Count; r++)
             {
-                var   band   = rowBands[GridRows - 1 - r]; // top visual row = highest Unity y
+                var   band   = rowBands[GridRows - 1 - r];
                 int   unityY = Mathf.Max(0, band.yMin - 2);
                 int   bandH  = Mathf.Min(h, band.yMax + 3) - unityY;
 
@@ -209,7 +218,7 @@ public class PlayerAnimator : MonoBehaviour
                 {
                     int fx = cols[c].s, fw = cols[c].e - cols[c].s + 1;
                     sprites[r * colsPerRow + c] = Sprite.Create(
-                        tex, new Rect(fx, unityY, fw, bandH), new Vector2(0.5f, 0.5f), 100f);
+                        tex, new Rect(fx, unityY, fw, bandH), new Vector2(0.5f, 0.5f), ppu);
                 }
             }
         }
