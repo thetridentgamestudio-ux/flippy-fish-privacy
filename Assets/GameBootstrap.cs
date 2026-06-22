@@ -302,6 +302,7 @@ void CreateBackground()
     // Add PlayerController
     // -----------------------------
     playerScript = player.AddComponent<PlayerController>();
+    player.AddComponent<PlayerAnimator>(); // handles default-skin frame animation + flap squish
 
     // -----------------------------
     // Add SpriteRenderer
