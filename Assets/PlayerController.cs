@@ -193,12 +193,9 @@ void Update()
 
     void SwimUp(float force)
 {
-    rb.linearVelocity = new Vector2(0, Mathf.Max(rb.linearVelocity.y, 0f));
+    rb.linearVelocity = new Vector2(0, Mathf.Max(rb.linearVelocity.y, 0f)); // cancel downward velocity
     float difficultyMultiplier = GameBootstrap.Instance != null ? GameBootstrap.Instance.GetDifficultyMultiplier() : 0f;
     rb.AddForce(Vector2.up * (force * _speedBoostMultiplier + difficultyMultiplier * 0.5f), ForceMode2D.Impulse);
-
-    // Notify animator for squish + tail-kick burst
-    GetComponent<PlayerAnimator>()?.OnFlap();
 }
 
 private float _speedBoostMultiplier = 1f;
