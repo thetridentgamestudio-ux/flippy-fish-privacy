@@ -31,14 +31,13 @@ public class OceanAmbience : MonoBehaviour
         // Each entry: (driftSpeed, alphaBase, alphaPulse, pulseSpeed, driftAngleDeg, sortOrder)
         var configs = new (float ds, float ab, float ap, float ps, float ang, int so)[]
         {
-            (0.08f, 0.028f, 0.018f, 0.35f, 12f,  -12),
-            (0.05f, 0.022f, 0.014f, 0.28f, -8f,  -11),
-            (0.11f, 0.018f, 0.012f, 0.42f, 20f,  -12),
-            (0.06f, 0.025f, 0.016f, 0.22f, -15f, -11),
+            (0.08f, 0.10f, 0.06f, 0.35f, 12f,  -6),
+            (0.05f, 0.08f, 0.05f, 0.28f, -8f,  -5),
+            (0.11f, 0.07f, 0.05f, 0.42f, 20f,  -6),
+            (0.06f, 0.09f, 0.06f, 0.22f, -15f, -5),
         };
 
         _layers = new CausticLayer[configs.Length];
-        Texture2D white = Texture2D.whiteTexture;
 
         for (int i = 0; i < configs.Length; i++)
         {
@@ -47,8 +46,9 @@ public class OceanAmbience : MonoBehaviour
             var sr = go.AddComponent<SpriteRenderer>();
 
             // Create a large soft-edged white sprite
-            sr.sprite      = CreateSoftSprite(halfW * 2.4f, halfH * 2.4f);
-            sr.sortingOrder = cfg.so;
+            sr.sprite           = CreateSoftSprite(halfW * 2.4f, halfH * 2.4f);
+            sr.sortingLayerName = "Default";
+            sr.sortingOrder     = cfg.so;
             // Light blue tint — subtle underwater colour
             sr.color = new Color(0.55f, 0.82f, 1f, cfg.ab);
 
