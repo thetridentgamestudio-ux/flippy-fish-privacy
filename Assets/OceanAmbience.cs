@@ -1,67 +1,70 @@
 using UnityEngine;
 
 /// <summary>
-/// Adds subtle animated water caustic layers behind everything.
-/// Each layer is a large white sprite that slowly drifts and pulses alpha,
-/// giving the impression of light rippling through ocean water.
-/// Completely self-contained — no dependencies on other scripts.
+/// Subtle animated water caustic shimmer — large soft blobs that drift and pulse alpha.
+/// Uses transform.localScale for sizing so sprite PPU doesn't matter.
+/// Completely self-contained.
 /// </summary>
 public class OceanAmbience : MonoBehaviour
 {
     struct CausticLayer
     {
-        public GameObject   go;
+        public GameObject     go;
         public SpriteRenderer sr;
-        public float        driftSpeed;
-        public float        alphaBase;
-        public float        alphaPulse;
-        public float        pulseSpeed;
-        public float        pulseOffset;
-        public Vector2      driftDir;
+        public float          driftSpeed;
+        public float          alphaBase;
+        public float          alphaPulse;
+        public float          pulseSpeed;
+        public float          pulseOffset;
+        public Vector2        driftDir;
     }
 
     CausticLayer[] _layers;
+    static Sprite  _sharedSprite;
 
     void Start()
     {
-        Camera cam = Camera.main;
-        float halfH = cam.orthographicSize;
-        float halfW = halfH * cam.aspect;
+        Camera cam   = Camera.main;
+        float  halfH = cam.orthographicSize;
+        float  halfW = halfH * cam.aspect;
 
-        // Each entry: (driftSpeed, alphaBase, alphaPulse, pulseSpeed, driftAngleDeg, sortOrder)
-        var configs = new (float ds, float ab, float ap, float ps, float ang, int so)[]
+        // Build a shared soft-circle sprite once (16×16 radial gradient texture)
+        if (_sharedSprite == null)
+            _sharedSprite = BuildSoftSprite();
+
+        // (driftSpeed, alphaBase, alphaPulse, pulseSpeed, driftAngleDeg, sizeMultiplier)
+        var cfgs = new (float spd, float ab, float ap, float ps, float ang, float sz)[]
         {
-            (0.08f, 0.10f, 0.06f, 0.35f, 12f,  -6),
-            (0.05f, 0.08f, 0.05f, 0.28f, -8f,  -5),
-            (0.11f, 0.07f, 0.05f, 0.42f, 20f,  -6),
-            (0.06f, 0.09f, 0.06f, 0.22f, -15f, -5),
+            (0.08f, 0.18f, 0.10f, 0.40f,  15f, 1.8f),
+            (0.05f, 0.14f, 0.08f, 0.28f,  -9f, 2.2f),
+            (0.10f, 0.12f, 0.08f, 0.45f,  22f, 1.5f),
+            (0.06f, 0.16f, 0.09f, 0.22f, -18f, 2.0f),
         };
 
-        _layers = new CausticLayer[configs.Length];
+        _layers = new CausticLayer[cfgs.Length];
 
-        for (int i = 0; i < configs.Length; i++)
+        for (int i = 0; i < cfgs.Length; i++)
         {
-            var cfg = configs[i];
-            var go = new GameObject($"Caustic_{i}");
-            var sr = go.AddComponent<SpriteRenderer>();
+            var cfg = cfgs[i];
+            var go  = new GameObject($"Caustic_{i}");
+            var sr  = go.AddComponent<SpriteRenderer>();
+            sr.sprite       = _sharedSprite;
+            sr.sortingOrder = -6;           // behind fish (-7 to -9) but in front of bg
+            sr.color        = new Color(0.5f, 0.78f, 1f, cfg.ab);
 
-            // Create a large soft-edged white sprite
-            sr.sprite           = CreateSoftSprite(halfW * 2.4f, halfH * 2.4f);
-            sr.sortingLayerName = "Default";
-            sr.sortingOrder     = cfg.so;
-            // Light blue tint — subtle underwater colour
-            sr.color = new Color(0.55f, 0.82f, 1f, cfg.ab);
+            // Scale transform to world size — this works regardless of PPU
+            float sz = halfH * cfg.sz;
+            go.transform.localScale = new Vector3(sz, sz, 1f);
+            go.transform.position   = new Vector3(
+                Random.Range(-halfW, halfW),
+                Random.Range(-halfH, halfH), 0f);
 
             float rad = cfg.ang * Mathf.Deg2Rad;
-            float startX = Random.Range(-halfW, halfW);
-            float startY = Random.Range(-halfH, halfH);
-            go.transform.position = new Vector3(startX, startY, 0f);
-
             _layers[i] = new CausticLayer
             {
                 go          = go,
                 sr          = sr,
-                driftSpeed  = cfg.ds,
+                driftSpeed  = cfg.spd,
                 alphaBase   = cfg.ab,
                 alphaPulse  = cfg.ap,
                 pulseSpeed  = cfg.ps,
@@ -75,66 +78,54 @@ public class OceanAmbience : MonoBehaviour
     {
         if (_layers == null) return;
 
-        Camera cam  = Camera.main;
+        Camera cam   = Camera.main;
         float  halfW = cam.orthographicSize * cam.aspect;
         float  halfH = cam.orthographicSize;
         float  t     = Time.time;
+        float  wrapW = halfW * 3f;
+        float  wrapH = halfH * 3f;
 
         for (int i = 0; i < _layers.Length; i++)
         {
             CausticLayer c = _layers[i];
             if (c.go == null) continue;
 
-            // Slow drift
             Vector3 pos = c.go.transform.position;
             pos.x += c.driftDir.x * c.driftSpeed * Time.deltaTime;
             pos.y += c.driftDir.y * c.driftSpeed * Time.deltaTime;
-
-            // Wrap when fully off screen
-            float wrapW = halfW * 2.8f;
-            float wrapH = halfH * 2.8f;
             if (pos.x >  wrapW) pos.x -= wrapW * 2f;
             if (pos.x < -wrapW) pos.x += wrapW * 2f;
             if (pos.y >  wrapH) pos.y -= wrapH * 2f;
             if (pos.y < -wrapH) pos.y += wrapH * 2f;
-
             c.go.transform.position = pos;
 
-            // Pulse alpha
             float alpha = c.alphaBase + Mathf.Sin(t * c.pulseSpeed + c.pulseOffset) * c.alphaPulse;
-            Color col = c.sr.color;
-            col.a     = Mathf.Clamp(alpha, 0f, 1f);
-            c.sr.color = col;
+            Color col   = c.sr.color;
+            col.a       = Mathf.Clamp(alpha, 0.02f, 1f);
+            c.sr.color  = col;
 
             _layers[i] = c;
         }
     }
 
-    // Creates a sprite that fades from white at centre to transparent at edges
-    static Sprite CreateSoftSprite(float worldW, float worldH)
+    static Sprite BuildSoftSprite()
     {
-        int texW = 64, texH = 64;
-        Texture2D tex = new Texture2D(texW, texH, TextureFormat.RGBA32, false);
+        const int S = 32;
+        var tex = new Texture2D(S, S, TextureFormat.RGBA32, false);
         tex.wrapMode = TextureWrapMode.Clamp;
-
-        Color32[] pixels = new Color32[texW * texH];
-        for (int y = 0; y < texH; y++)
+        var px = new Color32[S * S];
+        for (int y = 0; y < S; y++)
+        for (int x = 0; x < S; x++)
         {
-            for (int x = 0; x < texW; x++)
-            {
-                float fx = (x / (float)(texW - 1)) * 2f - 1f;
-                float fy = (y / (float)(texH - 1)) * 2f - 1f;
-                float d  = Mathf.Clamp01(1f - Mathf.Sqrt(fx * fx + fy * fy));
-                float a  = d * d; // squared = softer falloff
-                byte  b  = (byte)(a * 255f);
-                pixels[y * texW + x] = new Color32(255, 255, 255, b);
-            }
+            float fx = (x / (S - 1f)) * 2f - 1f;
+            float fy = (y / (S - 1f)) * 2f - 1f;
+            float d  = Mathf.Clamp01(1f - Mathf.Sqrt(fx * fx + fy * fy));
+            byte  a  = (byte)(d * d * 255f);          // smooth falloff
+            px[y * S + x] = new Color32(255, 255, 255, a);
         }
-        tex.SetPixels32(pixels);
+        tex.SetPixels32(px);
         tex.Apply();
-
-        float ppu = texW / worldW;
-        return Sprite.Create(tex, new Rect(0, 0, texW, texH),
-                             new Vector2(0.5f, 0.5f), ppu);
+        // PPU=1 → sprite is 32×32 world units; transform.localScale will resize it
+        return Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 1f);
     }
 }
