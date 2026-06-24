@@ -41,6 +41,8 @@ public GameObject restartButton;
     TextMeshProUGUI bestScoreText;
     GameObject bestScoreCard;
     private TextMeshProUGUI restartText;
+    private TextMeshProUGUI _taglineText;
+    private GameObject _profileBadge;
     //private GameObject pauseButtonObj; // gravity multiplier when falling
    // private TextMeshProUGUI pauseText;
     public Sprite playerSadSprite;
@@ -1778,6 +1780,8 @@ void CreateAllUI()
         if (gameLogo != null)      gameLogo.gameObject.SetActive(false);
         if (bestScoreCard != null) bestScoreCard.SetActive(false);
         else if (bestScoreText != null) bestScoreText.gameObject.SetActive(false);
+        if (_taglineText != null)  _taglineText.gameObject.SetActive(false);
+        if (_profileBadge != null) _profileBadge.SetActive(false);
 
         // usernamePanel lives on FirebaseGameManager
         var fgm = FindObjectOfType<FirebaseGameManager>();
@@ -1792,6 +1796,8 @@ void CreateAllUI()
         if (gameLogo != null)    gameLogo.gameObject.SetActive(true);
         if (bestScoreCard != null) { RefreshBestScore(); bestScoreCard.SetActive(true); }
         else if (bestScoreText != null) { RefreshBestScore(); bestScoreText.gameObject.SetActive(true); }
+        if (_taglineText != null)  _taglineText.gameObject.SetActive(true);
+        if (_profileBadge != null) _profileBadge.SetActive(true);
 
         // Quest button visible on menu so players can check quests before playing
         if (questButtonGO != null) questButtonGO.SetActive(true);
@@ -1887,19 +1893,20 @@ public void SaveUsername(string username)
 
     // ── BADGE BACKGROUND ─────────────────────────────────────────────────
     GameObject badgeGO = new GameObject("ProfileBadge");
+    _profileBadge = badgeGO;
     badgeGO.transform.SetParent(canvasGO.transform, false);
 
     Image bg = badgeGO.AddComponent<Image>();
     Sprite rounded = GetRoundedSprite();
     if (rounded != null) { bg.sprite = rounded; bg.type = Image.Type.Sliced; bg.pixelsPerUnitMultiplier = 0.35f; }
-    bg.color = new Color(0.04f, 0.18f, 0.32f, 0.88f); // deep ocean blue-dark
+    bg.color = new Color(0.03f, 0.14f, 0.30f, 0.90f); // deep ocean blue
 
     RectTransform rt = badgeGO.GetComponent<RectTransform>();
-    rt.anchorMin        = new Vector2(1, 1);
-    rt.anchorMax        = new Vector2(1, 1);
-    rt.pivot            = new Vector2(1, 1);
-    rt.anchoredPosition = new Vector2(-16, -16);
-    rt.sizeDelta        = new Vector2(230, 58);
+    rt.anchorMin        = new Vector2(0, 1);
+    rt.anchorMax        = new Vector2(0, 1);
+    rt.pivot            = new Vector2(0, 1);
+    rt.anchoredPosition = new Vector2(16, -16);
+    rt.sizeDelta        = new Vector2(260, 64);
 
     // ── FISH ICON (themed, no emoji needed) ──────────────────────────────
     GameObject iconGO = new GameObject("FishIcon");
@@ -2095,32 +2102,47 @@ void OnPlayPressed()
 }
 void CreateBestScoreText()
 {
-    // Styled card background
+    // ── Outer glow layer (slightly larger, lighter) ───────────────────
+    GameObject glowGO = new GameObject("BestScoreGlow");
+    glowGO.transform.SetParent(mainCanvas.transform, false);
+    Image glowImg  = glowGO.AddComponent<Image>();
+    glowImg.color  = new Color(0.2f, 0.65f, 1f, 0.18f);
+    Sprite rounded = GetRoundedSprite();
+    if (rounded != null) { glowImg.sprite = rounded; glowImg.type = Image.Type.Sliced; }
+    RectTransform glowRT = glowGO.GetComponent<RectTransform>();
+    glowRT.anchorMin        = new Vector2(0.5f, 0.5f);
+    glowRT.anchorMax        = new Vector2(0.5f, 0.5f);
+    glowRT.pivot            = new Vector2(0.5f, 0.5f);
+    glowRT.sizeDelta        = new Vector2(420, 120);
+    glowRT.anchoredPosition = new Vector2(0, 185);
+
+    // ── Card background ───────────────────────────────────────────────
     GameObject cardGO = new GameObject("BestScoreCard");
-    bestScoreCard = cardGO; // store so StartGame can hide the whole card
+    bestScoreCard = cardGO;
     cardGO.transform.SetParent(mainCanvas.transform, false);
 
     Image cardImg = cardGO.AddComponent<Image>();
-    cardImg.color = new Color(0f, 0f, 0f, 0.45f);
-    Sprite rounded = GetRoundedSprite();
+    cardImg.color = new Color(0.03f, 0.10f, 0.28f, 0.88f); // deep ocean blue
     if (rounded != null) { cardImg.sprite = rounded; cardImg.type = Image.Type.Sliced; }
 
     RectTransform cardRT = cardGO.GetComponent<RectTransform>();
     cardRT.anchorMin        = new Vector2(0.5f, 0.5f);
     cardRT.anchorMax        = new Vector2(0.5f, 0.5f);
     cardRT.pivot            = new Vector2(0.5f, 0.5f);
-    cardRT.sizeDelta        = new Vector2(340, 80);
-    cardRT.anchoredPosition = new Vector2(0, 120);
+    cardRT.sizeDelta        = new Vector2(390, 100);
+    cardRT.anchoredPosition = new Vector2(0, 185);
 
-    // Text inside card
+    // ── Score text ────────────────────────────────────────────────────
     GameObject bestGO = new GameObject("BestScoreText");
     bestGO.transform.SetParent(cardGO.transform, false);
     bestScoreText = bestGO.AddComponent<TextMeshProUGUI>();
-    bestScoreText.font      = tmpFont;
-    bestScoreText.fontSize  = 52;
-    bestScoreText.fontStyle = FontStyles.Bold;
-    bestScoreText.alignment = TextAlignmentOptions.Center;
-    bestScoreText.color     = new Color(1f, 0.9f, 0.3f); // warm gold
+    bestScoreText.font         = tmpFont;
+    bestScoreText.fontSize     = 58;
+    bestScoreText.fontStyle    = FontStyles.Bold;
+    bestScoreText.alignment    = TextAlignmentOptions.Center;
+    bestScoreText.color        = new Color(1f, 0.92f, 0.25f);
+    bestScoreText.outlineColor = new Color(0.6f, 0.35f, 0f, 1f);
+    bestScoreText.outlineWidth = 0.2f;
 
     RectTransform rt = bestGO.GetComponent<RectTransform>();
     rt.anchorMin = Vector2.zero;
@@ -2128,13 +2150,35 @@ void CreateBestScoreText()
     rt.offsetMin = new Vector2(12, 4);
     rt.offsetMax = new Vector2(-12, -4);
 
+    // Hide glow with card
+    glowGO.transform.SetSiblingIndex(cardGO.transform.GetSiblingIndex() - 1);
+
     RefreshBestScore();
+
+    // ── Tagline "Flip. Dash. Survive." ───────────────────────────────
+    GameObject tagGO = new GameObject("Tagline");
+    tagGO.transform.SetParent(mainCanvas.transform, false);
+    _taglineText = tagGO.AddComponent<TextMeshProUGUI>();
+    _taglineText.font      = tmpFont;
+    _taglineText.text      = "Flip.  Dash.  Survive.";
+    _taglineText.fontSize  = 30;
+    _taglineText.fontStyle = FontStyles.Italic;
+    _taglineText.color     = new Color(0.55f, 0.90f, 1f, 0.88f);
+    _taglineText.alignment = TextAlignmentOptions.Center;
+    _taglineText.outlineColor = new Color(0f, 0.2f, 0.5f, 1f);
+    _taglineText.outlineWidth = 0.15f;
+    RectTransform tagRT       = tagGO.GetComponent<RectTransform>();
+    tagRT.anchorMin        = new Vector2(0.5f, 0.5f);
+    tagRT.anchorMax        = new Vector2(0.5f, 0.5f);
+    tagRT.pivot            = new Vector2(0.5f, 0.5f);
+    tagRT.sizeDelta        = new Vector2(560, 52);
+    tagRT.anchoredPosition = new Vector2(0, 120);
 }
 void RefreshBestScore()
 {
     int best = PlayerPrefs.GetInt("BestScore", 0);
     if (bestScoreText != null)
-        bestScoreText.text = "BEST  " + best;
+        bestScoreText.text = best > 0 ? "★  BEST  " + best : "★  BEST  --";
 }
 void CreateGameLogo()
 {
@@ -2151,8 +2195,8 @@ void CreateGameLogo()
     rt.anchorMin        = new Vector2(0.5f, 1f);
     rt.anchorMax        = new Vector2(0.5f, 1f);
     rt.pivot            = new Vector2(0.5f, 1f);
-    rt.sizeDelta        = new Vector2(620, 400);  // taller to fit logo properly
-    rt.anchoredPosition = new Vector2(0, -220);
+    rt.sizeDelta        = new Vector2(720, 460);
+    rt.anchoredPosition = new Vector2(0, -60);
 }
 
 // void CreateGround()

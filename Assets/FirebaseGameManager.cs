@@ -498,14 +498,14 @@ IEnumerator RestorePlayerTab()
     usernamePanel.transform.SetParent(canvasGO.transform);
 
     RectTransform panelRect = usernamePanel.AddComponent<RectTransform>();
-    panelRect.sizeDelta = new Vector2(600, 580);  // taller to fit Play + Battle + BattlePass buttons
+    panelRect.sizeDelta = new Vector2(600, 580);
     panelRect.anchorMin = new Vector2(0.5f, 0.5f);
     panelRect.anchorMax = new Vector2(0.5f, 0.5f);
     panelRect.pivot = new Vector2(0.5f, 0.5f);
-    panelRect.anchoredPosition = Vector2.zero;
+    panelRect.anchoredPosition = new Vector2(0, -230); // push into lower half so logo + score breathe at top
 
     UnityEngine.UI.Image panelImage = usernamePanel.AddComponent<UnityEngine.UI.Image>();
-    panelImage.color = new Color(0,0,0,0.7f);
+    panelImage.color = new Color(0, 0, 0, 0f); // transparent — buttons have their own backgrounds
 
     // Input Field
     GameObject inputGO = new GameObject("UsernameInput");
@@ -572,8 +572,8 @@ IEnumerator RestorePlayerTab()
     buttonGO.transform.SetParent(usernamePanel.transform);
 
     RectTransform buttonRect = buttonGO.AddComponent<RectTransform>();
-    buttonRect.sizeDelta        = new Vector2(440, 100);
-    buttonRect.anchoredPosition = new Vector2(0, -60);
+    buttonRect.sizeDelta        = new Vector2(480, 130);   // bigger, more thumb-friendly
+    buttonRect.anchoredPosition = new Vector2(0, -40);
 
     Image buttonImage  = buttonGO.AddComponent<Image>();
     Sprite startSprite = Resources.Load<Sprite>("btn_play");
@@ -675,8 +675,8 @@ void Create2PlayerButton(GameObject parent)
     comp.onClick.AddListener(OnTwoPlayerPressed);
 
     RectTransform rt = btn2P.GetComponent<RectTransform>();
-    rt.sizeDelta        = new Vector2(440, 100);
-    rt.anchoredPosition = new Vector2(0, -174);
+    rt.sizeDelta        = new Vector2(460, 110);
+    rt.anchoredPosition = new Vector2(0, -190);
 
     // ── BATTLE PASS BUTTON (same size, 14px gap below Battle) ────────
     GameObject bpBtn = new GameObject("BattlePassButton");
@@ -692,8 +692,8 @@ void Create2PlayerButton(GameObject parent)
     bpComp.onClick.AddListener(() => BattlePassUI.Show());
 
     RectTransform bpRT = bpBtn.GetComponent<RectTransform>();
-    bpRT.sizeDelta        = new Vector2(440, 100);
-    bpRT.anchoredPosition = new Vector2(0, -288);
+    bpRT.sizeDelta        = new Vector2(460, 110);
+    bpRT.anchoredPosition = new Vector2(0, -315);
 }
 
 // ════════════════════════════════════════════════════════════════════
