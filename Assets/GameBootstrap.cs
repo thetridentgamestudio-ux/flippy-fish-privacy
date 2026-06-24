@@ -156,6 +156,9 @@ CreateUsernameText();
     GameObject fishAnimGO = new GameObject("BackgroundFishAnimator");
     _fishAnimator = fishAnimGO.AddComponent<BackgroundFishAnimator>();
 
+    // Subtle water caustic shimmer — drifting soft light blobs behind everything
+    new GameObject("OceanAmbience").AddComponent<OceanAmbience>();
+
 
     // -----------------------------
     // 4. Background and bounds
