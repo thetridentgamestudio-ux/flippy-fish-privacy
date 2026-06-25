@@ -505,7 +505,6 @@ IEnumerator RestorePlayerTab()
 
         Sprite pillSpr   = Resources.Load<Sprite>("pill_dark");
         Sprite coinSpr   = Resources.Load<Sprite>("Coin");
-        Sprite fishIcon  = Resources.Load<Sprite>("icon_fish");
 
         // ── TOP BAR LAYER ────────────────────────────────────────────────────
         _topBarRoot = MakeLayerRoot(canvasGO.transform, "TopBarRoot");
@@ -538,19 +537,7 @@ IEnumerator RestorePlayerTab()
         userPillRT.sizeDelta        = new Vector2(370, 90);
         userPillRT.anchoredPosition = new Vector2(0, -52);
 
-        // Fish icon inside username pill
-        var ufishGO  = new GameObject("FishIcon");
-        ufishGO.transform.SetParent(userPillGO.transform, false);
-        var ufishImg = ufishGO.AddComponent<Image>();
-        if (fishIcon != null) ufishImg.sprite = fishIcon;
-        else ufishImg.color = new Color(1f, 0.5f, 0.1f);
-        var ufishRT  = ufishGO.GetComponent<RectTransform>();
-        ufishRT.anchorMin = new Vector2(0, 0.5f); ufishRT.anchorMax = new Vector2(0, 0.5f);
-        ufishRT.pivot     = new Vector2(0, 0.5f);
-        ufishRT.sizeDelta        = new Vector2(62, 62);
-        ufishRT.anchoredPosition = new Vector2(14, 0);
-
-        // Username text inside pill
+        // Username text inside pill — full width, centered
         var uTxtGO   = new GameObject("UsernameLabel");
         uTxtGO.transform.SetParent(userPillGO.transform, false);
         _topBarUsernameLabel = uTxtGO.AddComponent<TextMeshProUGUI>();
@@ -558,12 +545,12 @@ IEnumerator RestorePlayerTab()
         _topBarUsernameLabel.fontSize  = 30;
         _topBarUsernameLabel.fontStyle = FontStyles.Bold;
         _topBarUsernameLabel.color     = Color.white;
-        _topBarUsernameLabel.alignment = TextAlignmentOptions.Left;
+        _topBarUsernameLabel.alignment = TextAlignmentOptions.Center;
         _topBarUsernameLabel.overflowMode      = TextOverflowModes.Ellipsis;
         _topBarUsernameLabel.textWrappingMode  = TextWrappingModes.NoWrap;
         var uTxtRT   = _topBarUsernameLabel.rectTransform;
         uTxtRT.anchorMin = Vector2.zero; uTxtRT.anchorMax = Vector2.one;
-        uTxtRT.offsetMin = new Vector2(84, 4); uTxtRT.offsetMax = new Vector2(-10, -4);
+        uTxtRT.offsetMin = new Vector2(12, 4); uTxtRT.offsetMax = new Vector2(-12, -4);
 
         // Coin pill — top right
         var coinPillGO  = new GameObject("CoinPill");
@@ -688,7 +675,7 @@ IEnumerator RestorePlayerTab()
             rt.anchoredPosition = new Vector2(0, yPos);
         }
 
-        MakeSpriteButton(_mainButtonsRoot.transform, "StartButton",       "start_button", -120f, 155f, OnSubmitUsername);
+        MakeSpriteButton(_mainButtonsRoot.transform, "StartButton", "start_button", -90f, 148f, OnSubmitUsername);
 
         // Keep sound button but hide it from start menu; it shows during gameplay
         CreateSoundButton(usernamePanel);
@@ -704,7 +691,7 @@ IEnumerator RestorePlayerTab()
         var navRT = _bottomNavBar.GetComponent<RectTransform>();
         navRT.anchorMin = new Vector2(0, 0); navRT.anchorMax = new Vector2(1, 0);
         navRT.pivot     = new Vector2(0.5f, 0);
-        navRT.sizeDelta        = new Vector2(0, 168);
+        navRT.sizeDelta        = new Vector2(0, 220);
         navRT.anchoredPosition = Vector2.zero;
 
         // Helper: nav item (icon + label) at anchorX within nav bar
@@ -733,10 +720,10 @@ IEnumerator RestorePlayerTab()
             if (spr != null) { iconImg.sprite = spr; iconImg.preserveAspect = true; }
             else iconImg.color = new Color(0.7f, 0.9f, 1f);
             var iconRT  = iconGO.GetComponent<RectTransform>();
-            iconRT.anchorMin = new Vector2(0.5f, 1f); iconRT.anchorMax = new Vector2(0.5f, 1f);
-            iconRT.pivot     = new Vector2(0.5f, 1f);
-            iconRT.sizeDelta        = new Vector2(105, 105);
-            iconRT.anchoredPosition = new Vector2(0, -14);
+            iconRT.anchorMin = new Vector2(0.5f, 0.5f); iconRT.anchorMax = new Vector2(0.5f, 0.5f);
+            iconRT.pivot     = new Vector2(0.5f, 0.5f);
+            iconRT.sizeDelta        = new Vector2(160, 160);
+            iconRT.anchoredPosition = new Vector2(0, 16);
 
             // Label (skipped when labelText is empty — icon already has text baked in)
             if (!string.IsNullOrEmpty(labelText))
@@ -745,15 +732,15 @@ IEnumerator RestorePlayerTab()
                 lblGO.transform.SetParent(container.transform, false);
                 var lbl    = lblGO.AddComponent<TextMeshProUGUI>();
                 lbl.text      = labelText;
-                lbl.fontSize  = 30;
+                lbl.fontSize  = 36;
                 lbl.fontStyle = FontStyles.Bold;
                 lbl.color     = new Color(0.72f, 0.90f, 1f);
                 lbl.alignment = TextAlignmentOptions.Center;
                 var lblRT  = lbl.rectTransform;
                 lblRT.anchorMin = new Vector2(0f, 0f); lblRT.anchorMax = new Vector2(1f, 0f);
                 lblRT.pivot     = new Vector2(0.5f, 0f);
-                lblRT.sizeDelta        = new Vector2(0, 36);
-                lblRT.anchoredPosition = new Vector2(0, 8);
+                lblRT.sizeDelta        = new Vector2(0, 44);
+                lblRT.anchoredPosition = new Vector2(0, 6);
             }
 
             // Notification dot
@@ -794,13 +781,13 @@ IEnumerator RestorePlayerTab()
         var coinIconNavRT  = coinIconNavGO.GetComponent<RectTransform>();
         coinIconNavRT.anchorMin = new Vector2(1f, 0.5f); coinIconNavRT.anchorMax = new Vector2(1f, 0.5f);
         coinIconNavRT.pivot     = new Vector2(1f, 0.5f);
-        coinIconNavRT.sizeDelta        = new Vector2(68, 68);
-        coinIconNavRT.anchoredPosition = new Vector2(-14, 8);
+        coinIconNavRT.sizeDelta        = new Vector2(90, 90);
+        coinIconNavRT.anchoredPosition = new Vector2(-14, 10);
 
         var coinTxtNavGO = new GameObject("CoinLabel");
         coinTxtNavGO.transform.SetParent(coinDispGO.transform, false);
         var coinTxtNav   = coinTxtNavGO.AddComponent<TextMeshProUGUI>();
-        coinTxtNav.fontSize  = 36; coinTxtNav.fontStyle = FontStyles.Bold;
+        coinTxtNav.fontSize  = 44; coinTxtNav.fontStyle = FontStyles.Bold;
         coinTxtNav.color     = new Color(1f, 0.92f, 0.2f);
         coinTxtNav.alignment = TextAlignmentOptions.Right;
         coinTxtNav.text      = SkinManager.GetCoins().ToString();
@@ -825,8 +812,8 @@ void Create2PlayerButton(GameObject parent)
     var mpRT = mpGO.GetComponent<RectTransform>();
     mpRT.anchorMin = new Vector2(0.5f, 0.5f); mpRT.anchorMax = new Vector2(0.5f, 0.5f);
     mpRT.pivot     = new Vector2(0.5f, 0.5f);
-    mpRT.sizeDelta        = new Vector2(860, 145);
-    mpRT.anchoredPosition = new Vector2(0, -305);
+    mpRT.sizeDelta        = new Vector2(860, 148);
+    mpRT.anchoredPosition = new Vector2(0, -268);
 
     // GO PREMIUM — full sprite PNG
     var gpGO  = new GameObject("BattlePassButton");
@@ -841,8 +828,8 @@ void Create2PlayerButton(GameObject parent)
     var gpRT = gpGO.GetComponent<RectTransform>();
     gpRT.anchorMin = new Vector2(0.5f, 0.5f); gpRT.anchorMax = new Vector2(0.5f, 0.5f);
     gpRT.pivot     = new Vector2(0.5f, 0.5f);
-    gpRT.sizeDelta        = new Vector2(860, 145);
-    gpRT.anchoredPosition = new Vector2(0, -478);
+    gpRT.sizeDelta        = new Vector2(860, 148);
+    gpRT.anchoredPosition = new Vector2(0, -446);
 }
 
 // ════════════════════════════════════════════════════════════════════

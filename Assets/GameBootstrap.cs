@@ -2141,20 +2141,7 @@ void CreateBestScoreText()
     cardRT.sizeDelta        = new Vector2(400, 105);
     cardRT.anchoredPosition = new Vector2(0, 185);
 
-    // ── Clownfish icon inside bar (left side) ─────────────────────────
-    GameObject fishIconGO  = new GameObject("ScoreFishIcon");
-    fishIconGO.transform.SetParent(cardGO.transform, false);
-    Image fishIconImg = fishIconGO.AddComponent<Image>();
-    Sprite fishSpr = Resources.Load<Sprite>("icon_fish");
-    if (fishSpr != null) fishIconImg.sprite = fishSpr;
-    else fishIconImg.color = new Color(1f, 0.5f, 0.1f);
-    RectTransform fishIconRT = fishIconGO.GetComponent<RectTransform>();
-    fishIconRT.anchorMin = new Vector2(0f, 0.5f); fishIconRT.anchorMax = new Vector2(0f, 0.5f);
-    fishIconRT.pivot     = new Vector2(0f, 0.5f);
-    fishIconRT.sizeDelta        = new Vector2(80, 80);
-    fishIconRT.anchoredPosition = new Vector2(14, 0);
-
-    // ── Score number text ─────────────────────────────────────────────
+    // ── Score number text — full bar width, centered ──────────────────
     GameObject bestGO = new GameObject("BestScoreText");
     bestGO.transform.SetParent(cardGO.transform, false);
     bestScoreText = bestGO.AddComponent<TextMeshProUGUI>();
@@ -2167,7 +2154,7 @@ void CreateBestScoreText()
     bestScoreText.outlineWidth = 0.18f;
     RectTransform scoreRT = bestGO.GetComponent<RectTransform>();
     scoreRT.anchorMin = Vector2.zero; scoreRT.anchorMax = Vector2.one;
-    scoreRT.offsetMin = new Vector2(100, 4); scoreRT.offsetMax = new Vector2(-12, -4);
+    scoreRT.offsetMin = new Vector2(12, 4); scoreRT.offsetMax = new Vector2(-12, -4);
 
     glowGO.transform.SetSiblingIndex(cardGO.transform.GetSiblingIndex() - 1);
     bestLblGO.transform.SetSiblingIndex(glowGO.transform.GetSiblingIndex() - 1);
