@@ -668,57 +668,27 @@ IEnumerator RestorePlayerTab()
         // ── MAIN BUTTONS LAYER ────────────────────────────────────────────────
         _mainButtonsRoot = MakeLayerRoot(canvasGO.transform, "MainButtonsRoot");
 
-        // ── Helper: build a wide menu button with left icon + bold label ─────
-        // parent, label, iconSpriteName, bgColor, yPos, onClick
-        void MakeMenuButton(Transform btnParent, string label, string iconName,
-                            Color bgColor, float yPos, UnityEngine.Events.UnityAction onClick)
+        // ── Helper: sprite-only button — PNG already contains icon + text ─────
+        void MakeSpriteButton(Transform btnParent, string goName, string spriteName,
+                              float yPos, float height, UnityEngine.Events.UnityAction onClick)
         {
-            var go  = new GameObject(label + "Button");
+            var go  = new GameObject(goName);
             go.transform.SetParent(btnParent, false);
             var img = go.AddComponent<Image>();
-            img.color = bgColor;
-            // Rounded pill shape — use rounded sprite if available
-            Sprite roundedSpr = GetRoundedSprite();
-            if (roundedSpr != null) { img.sprite = roundedSpr; img.type = Image.Type.Sliced; img.pixelsPerUnitMultiplier = 0.5f; }
+            Sprite spr = Resources.Load<Sprite>(spriteName);
+            if (spr != null) { img.sprite = spr; img.color = Color.white; img.preserveAspect = true; }
+            else img.color = new Color(0.1f, 0.7f, 0.8f);
             var btn = go.AddComponent<Button>();
             btn.targetGraphic = img;
             btn.onClick.AddListener(onClick);
             var rt = go.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(0.5f, 0.5f); rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot     = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta        = new Vector2(560, 130);
+            rt.sizeDelta        = new Vector2(860, height);
             rt.anchoredPosition = new Vector2(0, yPos);
-
-            // Icon left side
-            var iconGO  = new GameObject("Icon");
-            iconGO.transform.SetParent(go.transform, false);
-            var iconImg = iconGO.AddComponent<Image>();
-            Sprite iconSpr = Resources.Load<Sprite>(iconName);
-            if (iconSpr != null) { iconImg.sprite = iconSpr; iconImg.color = Color.white; iconImg.preserveAspect = true; }
-            else iconImg.color = new Color(1, 1, 1, 0.7f);
-            var iconRT  = iconGO.GetComponent<RectTransform>();
-            iconRT.anchorMin = new Vector2(0, 0.5f); iconRT.anchorMax = new Vector2(0, 0.5f);
-            iconRT.pivot     = new Vector2(0, 0.5f);
-            iconRT.sizeDelta        = new Vector2(82, 82);
-            iconRT.anchoredPosition = new Vector2(24, 0);
-
-            // Label text
-            var lblGO  = new GameObject("Label");
-            lblGO.transform.SetParent(go.transform, false);
-            var lbl    = lblGO.AddComponent<TextMeshProUGUI>();
-            lbl.text      = label;
-            lbl.fontSize  = 48;
-            lbl.fontStyle = FontStyles.Bold;
-            lbl.color     = Color.white;
-            lbl.alignment = TextAlignmentOptions.Center;
-            var lblRT  = lbl.rectTransform;
-            lblRT.anchorMin = Vector2.zero; lblRT.anchorMax = Vector2.one;
-            lblRT.offsetMin = new Vector2(112, 0); lblRT.offsetMax = new Vector2(-16, 0);
         }
 
-        // START — bright cyan matching mockup
-        MakeMenuButton(_mainButtonsRoot.transform, "START", "icon_fish",
-            new Color(0.10f, 0.76f, 0.82f), -120f, OnSubmitUsername);
+        MakeSpriteButton(_mainButtonsRoot.transform, "StartButton",       "start_button", -120f, 155f, OnSubmitUsername);
 
         // Keep sound button but hide it from start menu; it shows during gameplay
         CreateSoundButton(usernamePanel);
@@ -730,7 +700,7 @@ IEnumerator RestorePlayerTab()
         _bottomNavBar = new GameObject("BottomNavBar");
         _bottomNavBar.transform.SetParent(canvasGO.transform, false);
         var navImg = _bottomNavBar.AddComponent<Image>();
-        navImg.color = new Color(0.04f, 0.08f, 0.15f, 0.98f);
+        navImg.color = new Color(0f, 0f, 0f, 0f); // transparent — no dark bar
         var navRT = _bottomNavBar.GetComponent<RectTransform>();
         navRT.anchorMin = new Vector2(0, 0); navRT.anchorMax = new Vector2(1, 0);
         navRT.pivot     = new Vector2(0.5f, 0);
@@ -768,20 +738,23 @@ IEnumerator RestorePlayerTab()
             iconRT.sizeDelta        = new Vector2(105, 105);
             iconRT.anchoredPosition = new Vector2(0, -14);
 
-            // Label
-            var lblGO  = new GameObject("Label");
-            lblGO.transform.SetParent(container.transform, false);
-            var lbl    = lblGO.AddComponent<TextMeshProUGUI>();
-            lbl.text      = labelText;
-            lbl.fontSize  = 30;
-            lbl.fontStyle = FontStyles.Bold;
-            lbl.color     = new Color(0.72f, 0.90f, 1f);
-            lbl.alignment = TextAlignmentOptions.Center;
-            var lblRT  = lbl.rectTransform;
-            lblRT.anchorMin = new Vector2(0f, 0f); lblRT.anchorMax = new Vector2(1f, 0f);
-            lblRT.pivot     = new Vector2(0.5f, 0f);
-            lblRT.sizeDelta        = new Vector2(0, 36);
-            lblRT.anchoredPosition = new Vector2(0, 8);
+            // Label (skipped when labelText is empty — icon already has text baked in)
+            if (!string.IsNullOrEmpty(labelText))
+            {
+                var lblGO  = new GameObject("Label");
+                lblGO.transform.SetParent(container.transform, false);
+                var lbl    = lblGO.AddComponent<TextMeshProUGUI>();
+                lbl.text      = labelText;
+                lbl.fontSize  = 30;
+                lbl.fontStyle = FontStyles.Bold;
+                lbl.color     = new Color(0.72f, 0.90f, 1f);
+                lbl.alignment = TextAlignmentOptions.Center;
+                var lblRT  = lbl.rectTransform;
+                lblRT.anchorMin = new Vector2(0f, 0f); lblRT.anchorMax = new Vector2(1f, 0f);
+                lblRT.pivot     = new Vector2(0.5f, 0f);
+                lblRT.sizeDelta        = new Vector2(0, 36);
+                lblRT.anchoredPosition = new Vector2(0, 8);
+            }
 
             // Notification dot
             if (showDot)
@@ -799,7 +772,7 @@ IEnumerator RestorePlayerTab()
         }
 
         // Skins button — store reference for SetSkinsButtonVisible
-        MakeNavItem("SkinsButton",  "icon_skins",  "Skins", 0.16f, () => SkinSelectUI.Show());
+        MakeNavItem("SkinsButton",  "icon_skins",  "", 0.16f, () => SkinSelectUI.Show());
         skinsButtonObj = _bottomNavBar.transform.Find("SkinsButton")?.gameObject;
 
         MakeNavItem("QuestButton",  "icon_quest",  "Quest", 0.50f,
@@ -839,57 +812,37 @@ IEnumerator RestorePlayerTab()
 
 void Create2PlayerButton(GameObject parent)
 {
-    // Helper: pill button with left icon + bold label
-    void MakePillBtn(string goName, string label, string iconName,
-                     Color bgColor, float yPos, UnityEngine.Events.UnityAction onClick)
-    {
-        var go  = new GameObject(goName);
-        go.transform.SetParent(parent.transform, false);
-        var img = go.AddComponent<Image>();
-        img.color = bgColor;
-        Sprite roundedSpr = GetRoundedSprite();
-        if (roundedSpr != null) { img.sprite = roundedSpr; img.type = Image.Type.Sliced; img.pixelsPerUnitMultiplier = 0.5f; }
-        var btn = go.AddComponent<Button>();
-        btn.targetGraphic = img;
-        btn.onClick.AddListener(onClick);
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 0.5f); rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot     = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta        = new Vector2(560, 130);
-        rt.anchoredPosition = new Vector2(0, yPos);
+    // MULTIPLAYER — full sprite PNG
+    var mpGO  = new GameObject("TwoPlayerButton");
+    mpGO.transform.SetParent(parent.transform, false);
+    var mpImg = mpGO.AddComponent<Image>();
+    Sprite mpSpr = Resources.Load<Sprite>("multiplayer");
+    if (mpSpr != null) { mpImg.sprite = mpSpr; mpImg.color = Color.white; mpImg.preserveAspect = true; }
+    else mpImg.color = new Color(0.10f, 0.18f, 0.30f);
+    var mpBtn = mpGO.AddComponent<Button>();
+    mpBtn.targetGraphic = mpImg;
+    mpBtn.onClick.AddListener(OnTwoPlayerPressed);
+    var mpRT = mpGO.GetComponent<RectTransform>();
+    mpRT.anchorMin = new Vector2(0.5f, 0.5f); mpRT.anchorMax = new Vector2(0.5f, 0.5f);
+    mpRT.pivot     = new Vector2(0.5f, 0.5f);
+    mpRT.sizeDelta        = new Vector2(860, 145);
+    mpRT.anchoredPosition = new Vector2(0, -305);
 
-        var iconGO  = new GameObject("Icon");
-        iconGO.transform.SetParent(go.transform, false);
-        var iconImg = iconGO.AddComponent<Image>();
-        Sprite iconSpr = Resources.Load<Sprite>(iconName);
-        if (iconSpr != null) { iconImg.sprite = iconSpr; iconImg.color = Color.white; iconImg.preserveAspect = true; }
-        else iconImg.color = new Color(1,1,1,0.7f);
-        var iconRT  = iconGO.GetComponent<RectTransform>();
-        iconRT.anchorMin = new Vector2(0, 0.5f); iconRT.anchorMax = new Vector2(0, 0.5f);
-        iconRT.pivot     = new Vector2(0, 0.5f);
-        iconRT.sizeDelta        = new Vector2(82, 82);
-        iconRT.anchoredPosition = new Vector2(24, 0);
-
-        var lblGO  = new GameObject("Label");
-        lblGO.transform.SetParent(go.transform, false);
-        var lbl    = lblGO.AddComponent<TextMeshProUGUI>();
-        lbl.text      = label;
-        lbl.fontSize  = 48;
-        lbl.fontStyle = FontStyles.Bold;
-        lbl.color     = Color.white;
-        lbl.alignment = TextAlignmentOptions.Center;
-        var lblRT  = lbl.rectTransform;
-        lblRT.anchorMin = Vector2.zero; lblRT.anchorMax = Vector2.one;
-        lblRT.offsetMin = new Vector2(112, 0); lblRT.offsetMax = new Vector2(-16, 0);
-    }
-
-    // MULTIPLAYER — dark navy/teal matching mockup
-    MakePillBtn("TwoPlayerButton", "MULTIPLAYER", "icon_players",
-        new Color(0.10f, 0.18f, 0.30f), -290f, OnTwoPlayerPressed);
-
-    // GO PREMIUM — purple matching mockup
-    MakePillBtn("BattlePassButton", "GO PREMIUM", "icon_crown",
-        new Color(0.48f, 0.14f, 0.72f), -455f, () => BattlePassUI.Show());
+    // GO PREMIUM — full sprite PNG
+    var gpGO  = new GameObject("BattlePassButton");
+    gpGO.transform.SetParent(parent.transform, false);
+    var gpImg = gpGO.AddComponent<Image>();
+    Sprite gpSpr = Resources.Load<Sprite>("go_premium");
+    if (gpSpr != null) { gpImg.sprite = gpSpr; gpImg.color = Color.white; gpImg.preserveAspect = true; }
+    else gpImg.color = new Color(0.48f, 0.14f, 0.72f);
+    var gpBtn = gpGO.AddComponent<Button>();
+    gpBtn.targetGraphic = gpImg;
+    gpBtn.onClick.AddListener(() => BattlePassUI.Show());
+    var gpRT = gpGO.GetComponent<RectTransform>();
+    gpRT.anchorMin = new Vector2(0.5f, 0.5f); gpRT.anchorMax = new Vector2(0.5f, 0.5f);
+    gpRT.pivot     = new Vector2(0.5f, 0.5f);
+    gpRT.sizeDelta        = new Vector2(860, 145);
+    gpRT.anchoredPosition = new Vector2(0, -478);
 }
 
 // ════════════════════════════════════════════════════════════════════
