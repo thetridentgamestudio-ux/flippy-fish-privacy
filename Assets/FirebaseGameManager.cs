@@ -21,6 +21,11 @@ public class FirebaseGameManager : MonoBehaviour
     bool isRestarting = false;
     private bool isFirebaseReady = false;
     int bestScore;
+    // ── Start-screen layout roots ─────────────────────────────────────────
+    private TextMeshProUGUI _topBarUsernameLabel;
+    private GameObject _topBarRoot;
+    private GameObject _mainButtonsRoot;
+    private GameObject _bottomNavBar;
     int lastScore;
     TextMeshProUGUI usernameText;
     private string playerUsername = "";
@@ -58,13 +63,8 @@ Canvas mainCanvas;
         if (PlayerPrefs.HasKey("USERNAME"))
         {
             playerUsername = PlayerPrefs.GetString("USERNAME");
-            // Returning player: hide input field, make panel transparent, show only Play button
-            if (usernameInput != null)
-                usernameInput.gameObject.SetActive(false);
-            UnityEngine.UI.Image panelImg = usernamePanel != null
-                ? usernamePanel.GetComponent<UnityEngine.UI.Image>() : null;
-            if (panelImg != null) panelImg.color = new Color(0, 0, 0, 0f);
-            if (usernamePanel != null) usernamePanel.SetActive(true);
+            // Returning player — panel stays hidden (new top bar shows username)
+            if (usernamePanel != null) usernamePanel.SetActive(false);
         }
         else
         {
@@ -477,223 +477,419 @@ IEnumerator RestorePlayerTab()
     ShowLeaderboardUI(lastScore);
 }
 
+    // Full-canvas invisible layer — children use it as their anchor base
+    GameObject MakeLayerRoot(Transform parent, string name)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        return go;
+    }
+
     void CreateStartMenuUI()
-{
-    // Canvas
-    GameObject canvasGO = new GameObject("Canvas");
-   mainCanvas = canvasGO.AddComponent<Canvas>();
-   mainCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+    {
+        // ── Canvas ───────────────────────────────────────────────────────────
+        GameObject canvasGO = new GameObject("Canvas");
+        mainCanvas = canvasGO.AddComponent<Canvas>();
+        mainCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        CanvasScaler scaler = canvasGO.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode          = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution  = new Vector2(1080, 1920);
+        scaler.screenMatchMode      = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight   = 0.5f;
+        canvasGO.AddComponent<GraphicRaycaster>();
 
-    // MOBILE SCALING FIX
-    CanvasScaler scaler = canvasGO.AddComponent<CanvasScaler>();
-    scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-    scaler.referenceResolution = new Vector2(1080, 1920); // standard mobile resolution
-    scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-    scaler.matchWidthOrHeight = 0.5f;
+        Sprite pillSpr   = Resources.Load<Sprite>("pill_dark");
+        Sprite coinSpr   = Resources.Load<Sprite>("Coin");
+        Sprite fishIcon  = Resources.Load<Sprite>("icon_fish");
 
-    canvasGO.AddComponent<GraphicRaycaster>();
+        // ── TOP BAR LAYER ────────────────────────────────────────────────────
+        _topBarRoot = MakeLayerRoot(canvasGO.transform, "TopBarRoot");
 
-    // Panel
-    usernamePanel = new GameObject("UsernamePanel");
-    usernamePanel.transform.SetParent(canvasGO.transform);
+        // Help button — top-left blue bubble
+        var helpGO  = new GameObject("HelpButton");
+        helpGO.transform.SetParent(_topBarRoot.transform, false);
+        var helpImg = helpGO.AddComponent<Image>();
+        Sprite helpSpr = Resources.Load<Sprite>("btn_help");
+        if (helpSpr != null) helpImg.sprite = helpSpr;
+        else { helpImg.color = new Color(0.18f, 0.48f, 0.92f); }
+        var helpBtn = helpGO.AddComponent<Button>();
+        helpBtn.targetGraphic = helpImg;
+        helpBtn.onClick.AddListener(() => OnboardingOverlay.ShowAlways(GameBootstrap.Instance.GetMainCanvas()));
+        var helpRT = helpGO.GetComponent<RectTransform>();
+        helpRT.anchorMin = new Vector2(0, 1); helpRT.anchorMax = new Vector2(0, 1);
+        helpRT.pivot     = new Vector2(0, 1);
+        helpRT.sizeDelta        = new Vector2(112, 112);
+        helpRT.anchoredPosition = new Vector2(60, -52);
 
-    RectTransform panelRect = usernamePanel.AddComponent<RectTransform>();
-    panelRect.sizeDelta = new Vector2(600, 580);
-    panelRect.anchorMin = new Vector2(0.5f, 0.5f);
-    panelRect.anchorMax = new Vector2(0.5f, 0.5f);
-    panelRect.pivot = new Vector2(0.5f, 0.5f);
-    panelRect.anchoredPosition = new Vector2(0, -230); // push into lower half so logo + score breathe at top
+        // Username pill — top center
+        var userPillGO  = new GameObject("UsernamePill");
+        userPillGO.transform.SetParent(_topBarRoot.transform, false);
+        var userPillImg = userPillGO.AddComponent<Image>();
+        if (pillSpr != null) { userPillImg.sprite = pillSpr; userPillImg.type = Image.Type.Simple; }
+        else userPillImg.color = new Color(0.08f, 0.14f, 0.26f, 0.92f);
+        var userPillRT = userPillGO.GetComponent<RectTransform>();
+        userPillRT.anchorMin = new Vector2(0.5f, 1); userPillRT.anchorMax = new Vector2(0.5f, 1);
+        userPillRT.pivot     = new Vector2(0.5f, 1);
+        userPillRT.sizeDelta        = new Vector2(370, 90);
+        userPillRT.anchoredPosition = new Vector2(0, -52);
 
-    UnityEngine.UI.Image panelImage = usernamePanel.AddComponent<UnityEngine.UI.Image>();
-    panelImage.color = new Color(0, 0, 0, 0f); // transparent — buttons have their own backgrounds
+        // Fish icon inside username pill
+        var ufishGO  = new GameObject("FishIcon");
+        ufishGO.transform.SetParent(userPillGO.transform, false);
+        var ufishImg = ufishGO.AddComponent<Image>();
+        if (fishIcon != null) ufishImg.sprite = fishIcon;
+        else ufishImg.color = new Color(1f, 0.5f, 0.1f);
+        var ufishRT  = ufishGO.GetComponent<RectTransform>();
+        ufishRT.anchorMin = new Vector2(0, 0.5f); ufishRT.anchorMax = new Vector2(0, 0.5f);
+        ufishRT.pivot     = new Vector2(0, 0.5f);
+        ufishRT.sizeDelta        = new Vector2(62, 62);
+        ufishRT.anchoredPosition = new Vector2(14, 0);
 
-    // Input Field
-    GameObject inputGO = new GameObject("UsernameInput");
-    inputGO.transform.SetParent(usernamePanel.transform);
+        // Username text inside pill
+        var uTxtGO   = new GameObject("UsernameLabel");
+        uTxtGO.transform.SetParent(userPillGO.transform, false);
+        _topBarUsernameLabel = uTxtGO.AddComponent<TextMeshProUGUI>();
+        _topBarUsernameLabel.text      = PlayerPrefs.GetString("USERNAME", "Player");
+        _topBarUsernameLabel.fontSize  = 30;
+        _topBarUsernameLabel.fontStyle = FontStyles.Bold;
+        _topBarUsernameLabel.color     = Color.white;
+        _topBarUsernameLabel.alignment = TextAlignmentOptions.Left;
+        _topBarUsernameLabel.overflowMode      = TextOverflowModes.Ellipsis;
+        _topBarUsernameLabel.textWrappingMode  = TextWrappingModes.NoWrap;
+        var uTxtRT   = _topBarUsernameLabel.rectTransform;
+        uTxtRT.anchorMin = Vector2.zero; uTxtRT.anchorMax = Vector2.one;
+        uTxtRT.offsetMin = new Vector2(84, 4); uTxtRT.offsetMax = new Vector2(-10, -4);
 
-    RectTransform inputRect = inputGO.AddComponent<RectTransform>();
-    inputRect.sizeDelta = new Vector2(400, 80);
-    inputRect.anchoredPosition = new Vector2(0, 50);
+        // Coin pill — top right
+        var coinPillGO  = new GameObject("CoinPill");
+        coinPillGO.transform.SetParent(_topBarRoot.transform, false);
+        var coinPillImg = coinPillGO.AddComponent<Image>();
+        if (pillSpr != null) { coinPillImg.sprite = pillSpr; coinPillImg.type = Image.Type.Simple; }
+        else coinPillImg.color = new Color(0.08f, 0.14f, 0.26f, 0.92f);
+        var coinPillRT  = coinPillGO.GetComponent<RectTransform>();
+        coinPillRT.anchorMin = new Vector2(1, 1); coinPillRT.anchorMax = new Vector2(1, 1);
+        coinPillRT.pivot     = new Vector2(1, 1);
+        coinPillRT.sizeDelta        = new Vector2(225, 90);
+        coinPillRT.anchoredPosition = new Vector2(-60, -52);
 
-    inputGO.AddComponent<UnityEngine.UI.Image>().color = Color.white;
+        // Coin icon inside coin pill
+        var cpCoinIconGO  = new GameObject("CoinIcon");
+        cpCoinIconGO.transform.SetParent(coinPillGO.transform, false);
+        var cpCoinIconImg = cpCoinIconGO.AddComponent<Image>();
+        if (coinSpr != null) cpCoinIconImg.sprite = coinSpr;
+        else cpCoinIconImg.color = new Color(1f, 0.85f, 0.1f);
+        var cpCoinIconRT  = cpCoinIconGO.GetComponent<RectTransform>();
+        cpCoinIconRT.anchorMin = new Vector2(1, 0.5f); cpCoinIconRT.anchorMax = new Vector2(1, 0.5f);
+        cpCoinIconRT.pivot     = new Vector2(1, 0.5f);
+        cpCoinIconRT.sizeDelta        = new Vector2(60, 60);
+        cpCoinIconRT.anchoredPosition = new Vector2(-12, 0);
 
-    usernameInput = inputGO.AddComponent<TMP_InputField>();
+        // Coin count text inside coin pill
+        var cpTxtGO   = new GameObject("CoinLabel");
+        cpTxtGO.transform.SetParent(coinPillGO.transform, false);
+        var cpTxt = cpTxtGO.AddComponent<TextMeshProUGUI>();
+        cpTxt.fontSize  = 32;
+        cpTxt.fontStyle = FontStyles.Bold;
+        cpTxt.color     = new Color(1f, 0.92f, 0.2f);
+        cpTxt.alignment = TextAlignmentOptions.Right;
+        cpTxt.text      = SkinManager.GetCoins().ToString();
+        coinDisplayText = cpTxt;
+        var cpTxtRT   = cpTxt.rectTransform;
+        cpTxtRT.anchorMin = Vector2.zero; cpTxtRT.anchorMax = Vector2.one;
+        cpTxtRT.offsetMin = new Vector2(10, 4); cpTxtRT.offsetMax = new Vector2(-78, -4);
 
-    // Text inside input
-    GameObject textGO = new GameObject("Text");
-    textGO.transform.SetParent(inputGO.transform);
+        // ── USERNAME INPUT PANEL (shown only when no username set) ────────────
+        usernamePanel = new GameObject("UsernamePanel");
+        usernamePanel.transform.SetParent(canvasGO.transform, false);
+        var panelRect = usernamePanel.AddComponent<RectTransform>();
+        panelRect.sizeDelta        = new Vector2(580, 290);
+        panelRect.anchorMin        = new Vector2(0.5f, 0.5f);
+        panelRect.anchorMax        = new Vector2(0.5f, 0.5f);
+        panelRect.pivot            = new Vector2(0.5f, 0.5f);
+        panelRect.anchoredPosition = new Vector2(0, 120);
+        var panelImage = usernamePanel.AddComponent<UnityEngine.UI.Image>();
+        panelImage.color = new Color(0.04f, 0.10f, 0.22f, 0.96f);
 
-    TextMeshProUGUI text = textGO.AddComponent<TextMeshProUGUI>();
-    text.text = "";
-    text.fontSize = 36;
-    text.alignment = TextAlignmentOptions.Center;
-    text.color = Color.black;   // ← ADD THIS
+        // Input field
+        var inputGO   = new GameObject("UsernameInput");
+        inputGO.transform.SetParent(usernamePanel.transform, false);
+        var inputRect = inputGO.AddComponent<RectTransform>();
+        inputRect.sizeDelta        = new Vector2(460, 80);
+        inputRect.anchoredPosition = new Vector2(0, 70);
+        inputGO.AddComponent<UnityEngine.UI.Image>().color = Color.white;
+        usernameInput = inputGO.AddComponent<TMP_InputField>();
 
-    RectTransform textRect = textGO.GetComponent<RectTransform>();
-    textRect.anchorMin = Vector2.zero;
-    textRect.anchorMax = Vector2.one;
-    textRect.offsetMin = Vector2.zero;
-    textRect.offsetMax = Vector2.zero;
+        var textGO = new GameObject("Text");
+        textGO.transform.SetParent(inputGO.transform, false);
+        var inputTxt = textGO.AddComponent<TextMeshProUGUI>();
+        inputTxt.fontSize = 34; inputTxt.alignment = TextAlignmentOptions.Center; inputTxt.color = Color.black;
+        var tRect = inputTxt.rectTransform;
+        tRect.anchorMin = Vector2.zero; tRect.anchorMax = Vector2.one;
+        tRect.offsetMin = tRect.offsetMax = Vector2.zero;
+        usernameInput.textComponent = inputTxt;
 
-    usernameInput.textComponent = text;
+        var phGO  = new GameObject("Placeholder");
+        phGO.transform.SetParent(inputGO.transform, false);
+        var ph = phGO.AddComponent<TextMeshProUGUI>();
+        ph.text = "Enter Username"; ph.fontSize = 34; ph.color = Color.gray;
+        ph.alignment = TextAlignmentOptions.Center;
+        var phRect = ph.rectTransform;
+        phRect.anchorMin = Vector2.zero; phRect.anchorMax = Vector2.one;
+        phRect.offsetMin = phRect.offsetMax = Vector2.zero;
+        usernameInput.placeholder = ph;
+        usernameInput.characterLimit = 12;
+        usernameInput.contentType = TMP_InputField.ContentType.Alphanumeric;
 
-    // Placeholder
-    GameObject placeholderGO = new GameObject("Placeholder");
-    placeholderGO.transform.SetParent(inputGO.transform);
+        // Submit button inside panel
+        var submitGO  = new GameObject("SubmitButton");
+        submitGO.transform.SetParent(usernamePanel.transform, false);
+        var submitImg = submitGO.AddComponent<Image>();
+        submitImg.color = new Color(0.05f, 0.55f, 0.85f);
+        var submitBtn = submitGO.AddComponent<Button>();
+        submitBtn.targetGraphic = submitImg;
+        submitBtn.onClick.AddListener(OnSubmitUsername);
+        var submitLblGO = new GameObject("Label");
+        submitLblGO.transform.SetParent(submitGO.transform, false);
+        var submitLbl = submitLblGO.AddComponent<TextMeshProUGUI>();
+        submitLbl.text = "PLAY"; submitLbl.fontSize = 36; submitLbl.fontStyle = FontStyles.Bold;
+        submitLbl.alignment = TextAlignmentOptions.Center; submitLbl.color = Color.white;
+        var slRT = submitLbl.rectTransform;
+        slRT.anchorMin = Vector2.zero; slRT.anchorMax = Vector2.one;
+        slRT.offsetMin = slRT.offsetMax = Vector2.zero;
+        var submitRT = submitGO.GetComponent<RectTransform>();
+        submitRT.sizeDelta = new Vector2(460, 100); submitRT.anchoredPosition = new Vector2(0, -60);
+        usernamePanel.SetActive(!PlayerPrefs.HasKey("USERNAME"));
 
-    TextMeshProUGUI placeholder = placeholderGO.AddComponent<TextMeshProUGUI>();
-    placeholder.text = "Enter Username";
-    placeholder.fontSize = 36;
-    placeholder.color = Color.gray;
-    placeholder.alignment = TextAlignmentOptions.Center;
+        // ── MAIN BUTTONS LAYER ────────────────────────────────────────────────
+        _mainButtonsRoot = MakeLayerRoot(canvasGO.transform, "MainButtonsRoot");
 
-    RectTransform phRect = placeholderGO.GetComponent<RectTransform>();
-    phRect.anchorMin = Vector2.zero;
-    phRect.anchorMax = Vector2.one;
-    phRect.offsetMin = Vector2.zero;
-    phRect.offsetMax = Vector2.zero;
+        // ── Helper: build a wide menu button with left icon + bold label ─────
+        // parent, label, iconSpriteName, bgColor, yPos, onClick
+        void MakeMenuButton(Transform btnParent, string label, string iconName,
+                            Color bgColor, float yPos, UnityEngine.Events.UnityAction onClick)
+        {
+            var go  = new GameObject(label + "Button");
+            go.transform.SetParent(btnParent, false);
+            var img = go.AddComponent<Image>();
+            img.color = bgColor;
+            // Rounded pill shape — use rounded sprite if available
+            Sprite roundedSpr = GetRoundedSprite();
+            if (roundedSpr != null) { img.sprite = roundedSpr; img.type = Image.Type.Sliced; img.pixelsPerUnitMultiplier = 0.5f; }
+            var btn = go.AddComponent<Button>();
+            btn.targetGraphic = img;
+            btn.onClick.AddListener(onClick);
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0.5f); rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot     = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta        = new Vector2(560, 130);
+            rt.anchoredPosition = new Vector2(0, yPos);
 
-    usernameInput.placeholder = placeholder;
+            // Icon left side
+            var iconGO  = new GameObject("Icon");
+            iconGO.transform.SetParent(go.transform, false);
+            var iconImg = iconGO.AddComponent<Image>();
+            Sprite iconSpr = Resources.Load<Sprite>(iconName);
+            if (iconSpr != null) { iconImg.sprite = iconSpr; iconImg.color = Color.white; iconImg.preserveAspect = true; }
+            else iconImg.color = new Color(1, 1, 1, 0.7f);
+            var iconRT  = iconGO.GetComponent<RectTransform>();
+            iconRT.anchorMin = new Vector2(0, 0.5f); iconRT.anchorMax = new Vector2(0, 0.5f);
+            iconRT.pivot     = new Vector2(0, 0.5f);
+            iconRT.sizeDelta        = new Vector2(82, 82);
+            iconRT.anchoredPosition = new Vector2(24, 0);
 
-    // Enforce max 12 chars at input level — keyboard won't allow more
-    usernameInput.characterLimit = 12;
-    // Allow alphanumeric only on supported keyboards
-    usernameInput.contentType = TMP_InputField.ContentType.Alphanumeric;
+            // Label text
+            var lblGO  = new GameObject("Label");
+            lblGO.transform.SetParent(go.transform, false);
+            var lbl    = lblGO.AddComponent<TextMeshProUGUI>();
+            lbl.text      = label;
+            lbl.fontSize  = 48;
+            lbl.fontStyle = FontStyles.Bold;
+            lbl.color     = Color.white;
+            lbl.alignment = TextAlignmentOptions.Center;
+            var lblRT  = lbl.rectTransform;
+            lblRT.anchorMin = Vector2.zero; lblRT.anchorMax = Vector2.one;
+            lblRT.offsetMin = new Vector2(112, 0); lblRT.offsetMax = new Vector2(-16, 0);
+        }
 
-    // ── PLAY BUTTON ───────────────────────────────────────────────────
-    // Panel h=580, centre=0. Input y=50 h=80 → bottom at y=10.
-    // Gap 20px below input → buttons stack from y=-10 (top edge of first button).
-    // All buttons: 100px h, 14px gap → stack total = 3*100 + 2*14 = 328px.
-    //   Play   centre: -10 - 50        = -60
-    //   Battle centre: -60 - 50 - 14 - 50 = -174
-    //   BPass  centre: -174 - 114      = -288
-    // Bottom of BPass: -288-50 = -338. Panel bottom = -290. Fits with 48px to spare.
-    GameObject buttonGO = new GameObject("StartButton");
-    buttonGO.transform.SetParent(usernamePanel.transform);
+        // START — bright cyan matching mockup
+        MakeMenuButton(_mainButtonsRoot.transform, "START", "icon_fish",
+            new Color(0.10f, 0.76f, 0.82f), -120f, OnSubmitUsername);
 
-    RectTransform buttonRect = buttonGO.AddComponent<RectTransform>();
-    buttonRect.sizeDelta        = new Vector2(480, 130);   // bigger, more thumb-friendly
-    buttonRect.anchoredPosition = new Vector2(0, -40);
+        // Keep sound button but hide it from start menu; it shows during gameplay
+        CreateSoundButton(usernamePanel);
+        if (soundButtonObj != null) soundButtonObj.SetActive(false);
 
-    Image buttonImage  = buttonGO.AddComponent<Image>();
-    Sprite startSprite = Resources.Load<Sprite>("btn_play");
-    if (startSprite != null) { buttonImage.sprite = startSprite; buttonImage.preserveAspect = true; }
-    else buttonImage.color = new Color(0.05f, 0.60f, 0.85f);
+        Create2PlayerButton(_mainButtonsRoot);
 
-    Button startButton = buttonGO.AddComponent<Button>();
-    startButton.targetGraphic = buttonImage;
-    startButton.onClick.AddListener(OnSubmitUsername);
+        // ── BOTTOM NAV BAR ────────────────────────────────────────────────────
+        _bottomNavBar = new GameObject("BottomNavBar");
+        _bottomNavBar.transform.SetParent(canvasGO.transform, false);
+        var navImg = _bottomNavBar.AddComponent<Image>();
+        navImg.color = new Color(0.04f, 0.08f, 0.15f, 0.98f);
+        var navRT = _bottomNavBar.GetComponent<RectTransform>();
+        navRT.anchorMin = new Vector2(0, 0); navRT.anchorMax = new Vector2(1, 0);
+        navRT.pivot     = new Vector2(0.5f, 0);
+        navRT.sizeDelta        = new Vector2(0, 168);
+        navRT.anchoredPosition = Vector2.zero;
 
-    // ── SKINS BUTTON (bottom-left, screen-relative sizing) ───────────
-    float btnW = Screen.width  * 0.28f;
-    float btnH = Screen.height * 0.07f;
-    float btnMargin = Screen.width * 0.03f;
+        // Helper: nav item (icon + label) at anchorX within nav bar
+        void MakeNavItem(string goName, string iconSpriteName, string labelText,
+                         float anchorX, UnityEngine.Events.UnityAction onClickAction,
+                         bool showDot = false)
+        {
+            var container = new GameObject(goName);
+            container.transform.SetParent(_bottomNavBar.transform, false);
+            var containerImg = container.AddComponent<Image>();
+            containerImg.color = new Color(0,0,0,0);
+            var cBtn = container.AddComponent<Button>();
+            cBtn.targetGraphic = containerImg;
+            if (onClickAction != null) cBtn.onClick.AddListener(onClickAction);
+            var cRT = container.GetComponent<RectTransform>();
+            cRT.anchorMin = new Vector2(anchorX, 0f); cRT.anchorMax = new Vector2(anchorX, 1f);
+            cRT.pivot     = new Vector2(0.5f, 0.5f);
+            cRT.sizeDelta        = new Vector2(200, 0);
+            cRT.anchoredPosition = Vector2.zero;
 
-    GameObject skinsBtn = new GameObject("SkinsButton");
-    skinsButtonObj = skinsBtn;
-    skinsBtn.transform.SetParent(mainCanvas.transform, false);
-    Image skinsBtnImg   = skinsBtn.AddComponent<Image>();
-    Sprite skinsSpr     = Resources.Load<Sprite>("btn_skins");
-    if (skinsSpr != null) { skinsBtnImg.sprite = skinsSpr; skinsBtnImg.preserveAspect = true; }
-    else skinsBtnImg.color = new Color(0.08f, 0.22f, 0.42f, 0.92f);
-    Button skinsBtnComp = skinsBtn.AddComponent<Button>();
-    skinsBtnComp.targetGraphic = skinsBtnImg;
-    skinsBtnComp.onClick.AddListener(() => SkinSelectUI.Show());
-    RectTransform skinsRT = skinsBtn.GetComponent<RectTransform>();
-    skinsRT.anchorMin        = new Vector2(0f, 0f);
-    skinsRT.anchorMax        = new Vector2(0f, 0f);
-    skinsRT.pivot            = new Vector2(0f, 0f);
-    skinsRT.sizeDelta        = new Vector2(btnW, btnH);
-    skinsRT.anchoredPosition = new Vector2(btnMargin, btnMargin);
+            // Icon
+            var iconGO  = new GameObject("Icon");
+            iconGO.transform.SetParent(container.transform, false);
+            var iconImg = iconGO.AddComponent<Image>();
+            Sprite spr = Resources.Load<Sprite>(iconSpriteName);
+            if (spr != null) { iconImg.sprite = spr; iconImg.preserveAspect = true; }
+            else iconImg.color = new Color(0.7f, 0.9f, 1f);
+            var iconRT  = iconGO.GetComponent<RectTransform>();
+            iconRT.anchorMin = new Vector2(0.5f, 1f); iconRT.anchorMax = new Vector2(0.5f, 1f);
+            iconRT.pivot     = new Vector2(0.5f, 1f);
+            iconRT.sizeDelta        = new Vector2(105, 105);
+            iconRT.anchoredPosition = new Vector2(0, -14);
 
-    // ── COIN DISPLAY (bottom-right, screen-relative sizing) ──────────
-    GameObject coinDisp = new GameObject("CoinDisplay");
-    coinDisp.transform.SetParent(mainCanvas.transform, false);
-    Image coinDispImg = coinDisp.AddComponent<Image>();
-    coinDispImg.color = new Color(0.12f, 0.10f, 0.02f, 0.88f);
-    RectTransform coinRT = coinDisp.GetComponent<RectTransform>();
-    coinRT.anchorMin        = new Vector2(1f, 0f);
-    coinRT.anchorMax        = new Vector2(1f, 0f);
-    coinRT.pivot            = new Vector2(1f, 0f);
-    coinRT.sizeDelta        = new Vector2(btnW, btnH);
-    coinRT.anchoredPosition = new Vector2(-btnMargin, btnMargin);
+            // Label
+            var lblGO  = new GameObject("Label");
+            lblGO.transform.SetParent(container.transform, false);
+            var lbl    = lblGO.AddComponent<TextMeshProUGUI>();
+            lbl.text      = labelText;
+            lbl.fontSize  = 30;
+            lbl.fontStyle = FontStyles.Bold;
+            lbl.color     = new Color(0.72f, 0.90f, 1f);
+            lbl.alignment = TextAlignmentOptions.Center;
+            var lblRT  = lbl.rectTransform;
+            lblRT.anchorMin = new Vector2(0f, 0f); lblRT.anchorMax = new Vector2(1f, 0f);
+            lblRT.pivot     = new Vector2(0.5f, 0f);
+            lblRT.sizeDelta        = new Vector2(0, 36);
+            lblRT.anchoredPosition = new Vector2(0, 8);
 
-    // Coin icon
-    float iconSize = btnH * 0.6f;
-    GameObject coinIconGO = new GameObject("CoinIcon");
-    coinIconGO.transform.SetParent(coinDisp.transform, false);
-    Image coinIconImg = coinIconGO.AddComponent<Image>();
-    Sprite coinSpr = Resources.Load<Sprite>("Coin");
-    if (coinSpr != null) coinIconImg.sprite = coinSpr;
-    else coinIconImg.color = new Color(1f, 0.85f, 0.1f);
-    RectTransform coinIconRT = coinIconGO.GetComponent<RectTransform>();
-    coinIconRT.anchorMin        = new Vector2(0f, 0.5f);
-    coinIconRT.anchorMax        = new Vector2(0f, 0.5f);
-    coinIconRT.pivot            = new Vector2(0f, 0.5f);
-    coinIconRT.sizeDelta        = new Vector2(iconSize, iconSize);
-    coinIconRT.anchoredPosition = new Vector2(btnH * 0.15f, 0f);
+            // Notification dot
+            if (showDot)
+            {
+                var dotGO  = new GameObject("Dot");
+                dotGO.transform.SetParent(iconGO.transform, false);
+                var dotImg = dotGO.AddComponent<Image>();
+                dotImg.color = new Color(0.20f, 0.60f, 1f);
+                var dotRT  = dotGO.GetComponent<RectTransform>();
+                dotRT.anchorMin = new Vector2(1f, 1f); dotRT.anchorMax = new Vector2(1f, 1f);
+                dotRT.pivot     = new Vector2(0.5f, 0.5f);
+                dotRT.sizeDelta        = new Vector2(28, 28);
+                dotRT.anchoredPosition = new Vector2(-4, -4);
+            }
+        }
 
-    // Coin count text
-    GameObject coinTxtGO = new GameObject("CoinLabel");
-    coinTxtGO.transform.SetParent(coinDisp.transform, false);
-    TextMeshProUGUI coinTxt = coinTxtGO.AddComponent<TextMeshProUGUI>();
-    coinTxt.fontSize  = Screen.height * 0.022f;
-    coinTxt.fontStyle = FontStyles.Bold;
-    coinTxt.color     = new Color(1f, 0.88f, 0.1f);
-    coinTxt.alignment = TextAlignmentOptions.Left;
-    RectTransform coinTxtRT = coinTxt.GetComponent<RectTransform>();
-    coinTxtRT.anchorMin = new Vector2(0f, 0f);
-    coinTxtRT.anchorMax = new Vector2(1f, 1f);
-    coinTxtRT.offsetMin = new Vector2(iconSize + btnH * 0.2f, 0f);
-    coinTxtRT.offsetMax = Vector2.zero;
+        // Skins button — store reference for SetSkinsButtonVisible
+        MakeNavItem("SkinsButton",  "icon_skins",  "Skins", 0.16f, () => SkinSelectUI.Show());
+        skinsButtonObj = _bottomNavBar.transform.Find("SkinsButton")?.gameObject;
 
-    coinTxt.text = SkinManager.GetCoins().ToString();
-    coinDisplayText = coinTxt; // store so RefreshCoinDisplay() can update it
+        MakeNavItem("QuestButton",  "icon_quest",  "Quest", 0.50f,
+                    () => GameBootstrap.Instance?.OpenDailyQuests(), showDot: true);
 
-    CreateSoundButton(usernamePanel);
-    // Sound button stays visible throughout menu AND gameplay
-    if (soundButtonObj != null)
-        soundButtonObj.SetActive(true);
+        // Coins display — right third (no button action)
+        var coinDispGO = new GameObject("CoinDisplay");
+        coinDispGO.transform.SetParent(_bottomNavBar.transform, false);
+        coinDispGO.AddComponent<Image>().color = new Color(0,0,0,0);
+        var coinDispRT = coinDispGO.GetComponent<RectTransform>();
+        coinDispRT.anchorMin = new Vector2(0.84f, 0f); coinDispRT.anchorMax = new Vector2(1f, 1f);
+        coinDispRT.offsetMin = coinDispRT.offsetMax = Vector2.zero;
 
-    // ── 2-PLAYER BUTTON (below solo play button) ─────────────────────
-    Create2PlayerButton(usernamePanel);
-}
+        var coinIconNavGO  = new GameObject("CoinIcon");
+        coinIconNavGO.transform.SetParent(coinDispGO.transform, false);
+        var coinIconNavImg = coinIconNavGO.AddComponent<Image>();
+        if (coinSpr != null) { coinIconNavImg.sprite = coinSpr; coinIconNavImg.preserveAspect = true; }
+        else coinIconNavImg.color = new Color(1f, 0.85f, 0.1f);
+        var coinIconNavRT  = coinIconNavGO.GetComponent<RectTransform>();
+        coinIconNavRT.anchorMin = new Vector2(1f, 0.5f); coinIconNavRT.anchorMax = new Vector2(1f, 0.5f);
+        coinIconNavRT.pivot     = new Vector2(1f, 0.5f);
+        coinIconNavRT.sizeDelta        = new Vector2(68, 68);
+        coinIconNavRT.anchoredPosition = new Vector2(-14, 8);
+
+        var coinTxtNavGO = new GameObject("CoinLabel");
+        coinTxtNavGO.transform.SetParent(coinDispGO.transform, false);
+        var coinTxtNav   = coinTxtNavGO.AddComponent<TextMeshProUGUI>();
+        coinTxtNav.fontSize  = 36; coinTxtNav.fontStyle = FontStyles.Bold;
+        coinTxtNav.color     = new Color(1f, 0.92f, 0.2f);
+        coinTxtNav.alignment = TextAlignmentOptions.Right;
+        coinTxtNav.text      = SkinManager.GetCoins().ToString();
+        coinDisplayText      = coinTxtNav;
+        var coinTxtNavRT     = coinTxtNav.rectTransform;
+        coinTxtNavRT.anchorMin = Vector2.zero; coinTxtNavRT.anchorMax = Vector2.one;
+        coinTxtNavRT.offsetMin = new Vector2(8, 0); coinTxtNavRT.offsetMax = new Vector2(-88, 0);
+    }
 
 void Create2PlayerButton(GameObject parent)
 {
-    // ── BATTLE MODE BUTTON (same width/height as Play, 18px gap) ─────
-    GameObject btn2P = new GameObject("TwoPlayerButton");
-    btn2P.transform.SetParent(parent.transform, false);
+    // Helper: pill button with left icon + bold label
+    void MakePillBtn(string goName, string label, string iconName,
+                     Color bgColor, float yPos, UnityEngine.Events.UnityAction onClick)
+    {
+        var go  = new GameObject(goName);
+        go.transform.SetParent(parent.transform, false);
+        var img = go.AddComponent<Image>();
+        img.color = bgColor;
+        Sprite roundedSpr = GetRoundedSprite();
+        if (roundedSpr != null) { img.sprite = roundedSpr; img.type = Image.Type.Sliced; img.pixelsPerUnitMultiplier = 0.5f; }
+        var btn = go.AddComponent<Button>();
+        btn.targetGraphic = img;
+        btn.onClick.AddListener(onClick);
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f); rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot     = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta        = new Vector2(560, 130);
+        rt.anchoredPosition = new Vector2(0, yPos);
 
-    Image img        = btn2P.AddComponent<Image>();
-    Sprite battleSpr = Resources.Load<Sprite>("btn_battle");
-    if (battleSpr != null) { img.sprite = battleSpr; img.preserveAspect = true; }
-    else img.color = new Color(0.11f, 0.39f, 0.72f, 0.97f);
+        var iconGO  = new GameObject("Icon");
+        iconGO.transform.SetParent(go.transform, false);
+        var iconImg = iconGO.AddComponent<Image>();
+        Sprite iconSpr = Resources.Load<Sprite>(iconName);
+        if (iconSpr != null) { iconImg.sprite = iconSpr; iconImg.color = Color.white; iconImg.preserveAspect = true; }
+        else iconImg.color = new Color(1,1,1,0.7f);
+        var iconRT  = iconGO.GetComponent<RectTransform>();
+        iconRT.anchorMin = new Vector2(0, 0.5f); iconRT.anchorMax = new Vector2(0, 0.5f);
+        iconRT.pivot     = new Vector2(0, 0.5f);
+        iconRT.sizeDelta        = new Vector2(82, 82);
+        iconRT.anchoredPosition = new Vector2(24, 0);
 
-    Button comp = btn2P.AddComponent<Button>();
-    comp.targetGraphic = img;
-    comp.onClick.AddListener(OnTwoPlayerPressed);
+        var lblGO  = new GameObject("Label");
+        lblGO.transform.SetParent(go.transform, false);
+        var lbl    = lblGO.AddComponent<TextMeshProUGUI>();
+        lbl.text      = label;
+        lbl.fontSize  = 48;
+        lbl.fontStyle = FontStyles.Bold;
+        lbl.color     = Color.white;
+        lbl.alignment = TextAlignmentOptions.Center;
+        var lblRT  = lbl.rectTransform;
+        lblRT.anchorMin = Vector2.zero; lblRT.anchorMax = Vector2.one;
+        lblRT.offsetMin = new Vector2(112, 0); lblRT.offsetMax = new Vector2(-16, 0);
+    }
 
-    RectTransform rt = btn2P.GetComponent<RectTransform>();
-    rt.sizeDelta        = new Vector2(460, 110);
-    rt.anchoredPosition = new Vector2(0, -190);
+    // MULTIPLAYER — dark navy/teal matching mockup
+    MakePillBtn("TwoPlayerButton", "MULTIPLAYER", "icon_players",
+        new Color(0.10f, 0.18f, 0.30f), -290f, OnTwoPlayerPressed);
 
-    // ── BATTLE PASS BUTTON (same size, 14px gap below Battle) ────────
-    GameObject bpBtn = new GameObject("BattlePassButton");
-    bpBtn.transform.SetParent(parent.transform, false);
-
-    Image bpImg  = bpBtn.AddComponent<Image>();
-    Sprite bpSpr = Resources.Load<Sprite>("btn_premium");
-    if (bpSpr != null) { bpImg.sprite = bpSpr; bpImg.preserveAspect = true; }
-    else bpImg.color = new Color(0.85f, 0.65f, 0.05f, 0.97f);
-
-    Button bpComp = bpBtn.AddComponent<Button>();
-    bpComp.targetGraphic = bpImg;
-    bpComp.onClick.AddListener(() => BattlePassUI.Show());
-
-    RectTransform bpRT = bpBtn.GetComponent<RectTransform>();
-    bpRT.sizeDelta        = new Vector2(460, 110);
-    bpRT.anchoredPosition = new Vector2(0, -315);
+    // GO PREMIUM — purple matching mockup
+    MakePillBtn("BattlePassButton", "GO PREMIUM", "icon_crown",
+        new Color(0.48f, 0.14f, 0.72f), -455f, () => BattlePassUI.Show());
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1394,11 +1590,13 @@ public void OnSubmitUsername()
         playerUsername = username;
         GameBootstrap.Instance.SaveUsername(username);
         GameBootstrap.Instance.RefreshUsernameText();
+        if (_topBarUsernameLabel != null) _topBarUsernameLabel.text = username;
     }
     else
     {
         // Username already exists
         playerUsername = GameBootstrap.Instance.GetUsername();
+        if (_topBarUsernameLabel != null) _topBarUsernameLabel.text = playerUsername;
     }
 
     if (usernamePanel != null)
@@ -1407,6 +1605,25 @@ public void OnSubmitUsername()
     if (GameBootstrap.Instance != null)
         GameBootstrap.Instance.StartGame();
 }
+
+public void HideStartMenuElements()
+{
+    if (_topBarRoot     != null) _topBarRoot.SetActive(false);
+    if (_mainButtonsRoot != null) _mainButtonsRoot.SetActive(false);
+    if (_bottomNavBar   != null) _bottomNavBar.SetActive(false);
+    if (usernamePanel   != null) usernamePanel.SetActive(false);
+}
+
+public void ShowStartMenuElements()
+{
+    if (_topBarRoot     != null) _topBarRoot.SetActive(true);
+    if (_mainButtonsRoot != null) _mainButtonsRoot.SetActive(true);
+    if (_bottomNavBar   != null) _bottomNavBar.SetActive(true);
+    // usernamePanel only shown when no username set
+    if (usernamePanel != null && !PlayerPrefs.HasKey("USERNAME"))
+        usernamePanel.SetActive(true);
+}
+
 public void SetUsername(string username)
 {
     playerUsername = username;

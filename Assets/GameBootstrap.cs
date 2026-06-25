@@ -1028,15 +1028,8 @@ public void TriggerGameOver()
             if (reviveButton  != null) reviveButton.SetActive(canRevive);
             if (restartButton != null) restartButton.SetActive(true);
 
-            // Show skins + quest buttons on solo game over
+            // Show skins button on solo game over
             if (firebase != null) firebase.SetSkinsButtonVisible(true);
-            if (questButtonGO != null)
-            {
-                questButtonGO.SetActive(true);
-                // Quest button must render BELOW the game-over panel
-                questButtonGO.transform.SetSiblingIndex(
-                    gameOverPanel.transform.GetSiblingIndex() - 1);
-            }
 
             // ── Skin unlock hint — anchored BELOW restart button ──────────────
             // Panel is 450px tall, centred at y=60. Restart button bottom edge ≈ y=-265-45=-310 from panel centre.
@@ -1783,10 +1776,8 @@ void CreateAllUI()
         if (_taglineText != null)  _taglineText.gameObject.SetActive(false);
         if (_profileBadge != null) _profileBadge.SetActive(false);
 
-        // usernamePanel lives on FirebaseGameManager
         var fgm = FindObjectOfType<FirebaseGameManager>();
-        if (fgm != null && fgm.usernamePanel != null)
-            fgm.usernamePanel.SetActive(false);
+        if (fgm != null) fgm.HideStartMenuElements();
     }
 
     // Restore menu-layer elements when returning to the pre-game waiting state (solo).
@@ -1799,13 +1790,11 @@ void CreateAllUI()
         if (_taglineText != null)  _taglineText.gameObject.SetActive(true);
         if (_profileBadge != null) _profileBadge.SetActive(true);
 
-        // Quest button visible on menu so players can check quests before playing
-        if (questButtonGO != null) questButtonGO.SetActive(true);
-
         var fgm = FindObjectOfType<FirebaseGameManager>();
-        if (fgm != null && fgm.usernamePanel != null)
-            fgm.usernamePanel.SetActive(true);
+        if (fgm != null) fgm.ShowStartMenuElements();
     }
+
+    public void OpenDailyQuests() => ShowDailyQuests();
     void CreateGameOverImage()
 {
     if (mainCanvas == null)
@@ -1943,9 +1932,12 @@ public void SaveUsername(string username)
     textRT.offsetMax = new Vector2(-10, -4);
 
     usernameText.text = playerUsername;
+
+    // Firebase top bar replaces this badge — hide it
+    badgeGO.SetActive(false);
 }
 
-   
+
     void  LoadUsername()
 {
     if (PlayerPrefs.HasKey("USERNAME"))
@@ -2102,56 +2094,83 @@ void OnPlayPressed()
 }
 void CreateBestScoreText()
 {
-    // ── Outer glow layer (slightly larger, lighter) ───────────────────
+    // ── "BEST" label above the bar ────────────────────────────────────
+    GameObject bestLblGO = new GameObject("BestLabel");
+    bestLblGO.transform.SetParent(mainCanvas.transform, false);
+    TextMeshProUGUI bestLbl = bestLblGO.AddComponent<TextMeshProUGUI>();
+    bestLbl.font      = tmpFont;
+    bestLbl.text      = "BEST";
+    bestLbl.fontSize  = 36;
+    bestLbl.fontStyle = FontStyles.Bold;
+    bestLbl.color     = new Color(1f, 0.88f, 0.1f);
+    bestLbl.outlineColor = new Color(0.55f, 0.30f, 0f, 1f);
+    bestLbl.outlineWidth = 0.25f;
+    bestLbl.alignment = TextAlignmentOptions.Center;
+    RectTransform bestLblRT = bestLblGO.GetComponent<RectTransform>();
+    bestLblRT.anchorMin = new Vector2(0.5f, 0.5f); bestLblRT.anchorMax = new Vector2(0.5f, 0.5f);
+    bestLblRT.pivot     = new Vector2(0.5f, 0.5f);
+    bestLblRT.sizeDelta        = new Vector2(300, 46);
+    bestLblRT.anchoredPosition = new Vector2(0, 230);
+
+    // ── Gold glow behind the bar ──────────────────────────────────────
     GameObject glowGO = new GameObject("BestScoreGlow");
     glowGO.transform.SetParent(mainCanvas.transform, false);
-    Image glowImg  = glowGO.AddComponent<Image>();
-    glowImg.color  = new Color(0.2f, 0.65f, 1f, 0.18f);
-    Sprite rounded = GetRoundedSprite();
-    if (rounded != null) { glowImg.sprite = rounded; glowImg.type = Image.Type.Sliced; }
+    Image glowImg = glowGO.AddComponent<Image>();
+    Sprite glowSpr = Resources.Load<Sprite>("glow_gold");
+    if (glowSpr != null) { glowImg.sprite = glowSpr; glowImg.preserveAspect = false; }
+    else glowImg.color = new Color(1f, 0.82f, 0.1f, 0.35f);
+    glowImg.color = new Color(1f, 1f, 1f, 0.55f);
     RectTransform glowRT = glowGO.GetComponent<RectTransform>();
-    glowRT.anchorMin        = new Vector2(0.5f, 0.5f);
-    glowRT.anchorMax        = new Vector2(0.5f, 0.5f);
-    glowRT.pivot            = new Vector2(0.5f, 0.5f);
-    glowRT.sizeDelta        = new Vector2(420, 120);
+    glowRT.anchorMin = new Vector2(0.5f, 0.5f); glowRT.anchorMax = new Vector2(0.5f, 0.5f);
+    glowRT.pivot     = new Vector2(0.5f, 0.5f);
+    glowRT.sizeDelta        = new Vector2(480, 140);
     glowRT.anchoredPosition = new Vector2(0, 185);
 
-    // ── Card background ───────────────────────────────────────────────
+    // ── Gold bar background ───────────────────────────────────────────
     GameObject cardGO = new GameObject("BestScoreCard");
     bestScoreCard = cardGO;
     cardGO.transform.SetParent(mainCanvas.transform, false);
-
     Image cardImg = cardGO.AddComponent<Image>();
-    cardImg.color = new Color(0.03f, 0.10f, 0.28f, 0.88f); // deep ocean blue
-    if (rounded != null) { cardImg.sprite = rounded; cardImg.type = Image.Type.Sliced; }
-
+    Sprite barSpr = Resources.Load<Sprite>("bar_gold");
+    if (barSpr != null) { cardImg.sprite = barSpr; cardImg.preserveAspect = false; }
+    else cardImg.color = new Color(0.72f, 0.46f, 0.06f);
+    cardImg.color = Color.white;
     RectTransform cardRT = cardGO.GetComponent<RectTransform>();
-    cardRT.anchorMin        = new Vector2(0.5f, 0.5f);
-    cardRT.anchorMax        = new Vector2(0.5f, 0.5f);
-    cardRT.pivot            = new Vector2(0.5f, 0.5f);
-    cardRT.sizeDelta        = new Vector2(390, 100);
+    cardRT.anchorMin = new Vector2(0.5f, 0.5f); cardRT.anchorMax = new Vector2(0.5f, 0.5f);
+    cardRT.pivot     = new Vector2(0.5f, 0.5f);
+    cardRT.sizeDelta        = new Vector2(400, 105);
     cardRT.anchoredPosition = new Vector2(0, 185);
 
-    // ── Score text ────────────────────────────────────────────────────
+    // ── Clownfish icon inside bar (left side) ─────────────────────────
+    GameObject fishIconGO  = new GameObject("ScoreFishIcon");
+    fishIconGO.transform.SetParent(cardGO.transform, false);
+    Image fishIconImg = fishIconGO.AddComponent<Image>();
+    Sprite fishSpr = Resources.Load<Sprite>("icon_fish");
+    if (fishSpr != null) fishIconImg.sprite = fishSpr;
+    else fishIconImg.color = new Color(1f, 0.5f, 0.1f);
+    RectTransform fishIconRT = fishIconGO.GetComponent<RectTransform>();
+    fishIconRT.anchorMin = new Vector2(0f, 0.5f); fishIconRT.anchorMax = new Vector2(0f, 0.5f);
+    fishIconRT.pivot     = new Vector2(0f, 0.5f);
+    fishIconRT.sizeDelta        = new Vector2(80, 80);
+    fishIconRT.anchoredPosition = new Vector2(14, 0);
+
+    // ── Score number text ─────────────────────────────────────────────
     GameObject bestGO = new GameObject("BestScoreText");
     bestGO.transform.SetParent(cardGO.transform, false);
     bestScoreText = bestGO.AddComponent<TextMeshProUGUI>();
     bestScoreText.font         = tmpFont;
-    bestScoreText.fontSize     = 58;
+    bestScoreText.fontSize     = 64;
     bestScoreText.fontStyle    = FontStyles.Bold;
     bestScoreText.alignment    = TextAlignmentOptions.Center;
-    bestScoreText.color        = new Color(1f, 0.92f, 0.25f);
-    bestScoreText.outlineColor = new Color(0.6f, 0.35f, 0f, 1f);
-    bestScoreText.outlineWidth = 0.2f;
+    bestScoreText.color        = Color.white;
+    bestScoreText.outlineColor = new Color(0.4f, 0.22f, 0f, 1f);
+    bestScoreText.outlineWidth = 0.18f;
+    RectTransform scoreRT = bestGO.GetComponent<RectTransform>();
+    scoreRT.anchorMin = Vector2.zero; scoreRT.anchorMax = Vector2.one;
+    scoreRT.offsetMin = new Vector2(100, 4); scoreRT.offsetMax = new Vector2(-12, -4);
 
-    RectTransform rt = bestGO.GetComponent<RectTransform>();
-    rt.anchorMin = Vector2.zero;
-    rt.anchorMax = Vector2.one;
-    rt.offsetMin = new Vector2(12, 4);
-    rt.offsetMax = new Vector2(-12, -4);
-
-    // Hide glow with card
     glowGO.transform.SetSiblingIndex(cardGO.transform.GetSiblingIndex() - 1);
+    bestLblGO.transform.SetSiblingIndex(glowGO.transform.GetSiblingIndex() - 1);
 
     RefreshBestScore();
 
@@ -2160,26 +2179,25 @@ void CreateBestScoreText()
     tagGO.transform.SetParent(mainCanvas.transform, false);
     _taglineText = tagGO.AddComponent<TextMeshProUGUI>();
     _taglineText.font      = tmpFont;
-    _taglineText.text      = "Flip.  Dash.  Survive.";
-    _taglineText.fontSize  = 30;
-    _taglineText.fontStyle = FontStyles.Italic;
-    _taglineText.color     = new Color(0.55f, 0.90f, 1f, 0.88f);
+    _taglineText.text      = "Flip. Dash. Survive.";
+    _taglineText.fontSize  = 34;
+    _taglineText.fontStyle = FontStyles.Bold | FontStyles.Italic;
+    _taglineText.color     = new Color(0.40f, 0.95f, 0.95f);
     _taglineText.alignment = TextAlignmentOptions.Center;
-    _taglineText.outlineColor = new Color(0f, 0.2f, 0.5f, 1f);
-    _taglineText.outlineWidth = 0.15f;
-    RectTransform tagRT       = tagGO.GetComponent<RectTransform>();
-    tagRT.anchorMin        = new Vector2(0.5f, 0.5f);
-    tagRT.anchorMax        = new Vector2(0.5f, 0.5f);
-    tagRT.pivot            = new Vector2(0.5f, 0.5f);
-    tagRT.sizeDelta        = new Vector2(560, 52);
-    tagRT.anchoredPosition = new Vector2(0, 120);
+    RectTransform tagRT = tagGO.GetComponent<RectTransform>();
+    tagRT.anchorMin = new Vector2(0.5f, 0.5f); tagRT.anchorMax = new Vector2(0.5f, 0.5f);
+    tagRT.pivot     = new Vector2(0.5f, 0.5f);
+    tagRT.sizeDelta        = new Vector2(500, 54);
+    tagRT.anchoredPosition = new Vector2(0, 105);
 }
+
 void RefreshBestScore()
 {
     int best = PlayerPrefs.GetInt("BestScore", 0);
     if (bestScoreText != null)
-        bestScoreText.text = best > 0 ? "★  BEST  " + best : "★  BEST  --";
+        bestScoreText.text = best > 0 ? best.ToString() : "--";
 }
+
 void CreateGameLogo()
 {
     Canvas canvas = FindObjectOfType<Canvas>();
@@ -2188,15 +2206,17 @@ void CreateGameLogo()
     logoGO.transform.SetParent(canvas.transform, false);
 
     gameLogo = logoGO.AddComponent<Image>();
-    gameLogo.sprite = gameLogoSprite;
-    gameLogo.preserveAspect = true; // maintain aspect ratio — no squeezing
+    Sprite logoSpr = Resources.Load<Sprite>("flippy_fish_logo");
+    if (logoSpr != null) gameLogo.sprite = logoSpr;
+    else if (gameLogoSprite != null) gameLogo.sprite = gameLogoSprite;
+    gameLogo.preserveAspect = true;
 
     RectTransform rt = logoGO.GetComponent<RectTransform>();
     rt.anchorMin        = new Vector2(0.5f, 1f);
     rt.anchorMax        = new Vector2(0.5f, 1f);
     rt.pivot            = new Vector2(0.5f, 1f);
-    rt.sizeDelta        = new Vector2(720, 460);
-    rt.anchoredPosition = new Vector2(0, -60);
+    rt.sizeDelta        = new Vector2(760, 500);
+    rt.anchoredPosition = new Vector2(0, -55);
 }
 
 // void CreateGround()
@@ -3199,38 +3219,8 @@ void CreateDailyQuestsButton()
     nav.mode = Navigation.Mode.None;
     questBtn.navigation = nav;
     
-    Debug.Log("[🎯 DailyQuests] Button created in TOP-RIGHT - Players can now tap to see quests!");
-
-    // ── "?" help button — top-left, replays tutorial ──────────────────────
-    GameObject helpGO = new GameObject("HelpButton");
-    helpGO.transform.SetParent(mainCanvas.transform, false);
-
-    Image helpImg = helpGO.AddComponent<Image>();
-    helpImg.color = new Color(0.15f, 0.45f, 0.85f, 0.85f);
-
-    Button helpBtn = helpGO.AddComponent<Button>();
-    helpBtn.targetGraphic = helpImg;
-    helpBtn.onClick.AddListener(() => OnboardingOverlay.ShowAlways(mainCanvas));
-
-    var helpRT = helpGO.GetComponent<RectTransform>();
-    helpRT.anchorMin        = new Vector2(0f, 1f);
-    helpRT.anchorMax        = new Vector2(0f, 1f);
-    helpRT.pivot            = new Vector2(0f, 1f);
-    helpRT.anchoredPosition = new Vector2(14f, -14f);
-    helpRT.sizeDelta        = new Vector2(52f, 52f);
-
-    var helpLblGO = new GameObject("Label");
-    helpLblGO.transform.SetParent(helpGO.transform, false);
-    var helpTxt = helpLblGO.AddComponent<TMPro.TextMeshProUGUI>();
-    helpTxt.text      = "?";
-    helpTxt.fontSize  = 26;
-    helpTxt.fontStyle = TMPro.FontStyles.Bold;
-    helpTxt.color     = Color.white;
-    helpTxt.alignment = TMPro.TextAlignmentOptions.Center;
-    var helpLblRT = helpLblGO.GetComponent<RectTransform>();
-    helpLblRT.anchorMin = Vector2.zero;
-    helpLblRT.anchorMax = Vector2.one;
-    helpLblRT.offsetMin = helpLblRT.offsetMax = Vector2.zero;
+    // Suppress old quest button — Firebase bottom nav bar replaces it
+    questButtonGO.SetActive(false);
 }
 
 void ShowDailyQuests()
