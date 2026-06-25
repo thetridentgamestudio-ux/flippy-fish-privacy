@@ -2094,54 +2094,37 @@ void OnPlayPressed()
 }
 void CreateBestScoreText()
 {
-    // ── "BEST" label above the bar ────────────────────────────────────
-    GameObject bestLblGO = new GameObject("BestLabel");
-    bestLblGO.transform.SetParent(mainCanvas.transform, false);
-    TextMeshProUGUI bestLbl = bestLblGO.AddComponent<TextMeshProUGUI>();
-    bestLbl.font      = tmpFont;
-    bestLbl.text      = "BEST";
-    bestLbl.fontSize  = 36;
-    bestLbl.fontStyle = FontStyles.Bold;
-    bestLbl.color     = new Color(1f, 0.88f, 0.1f);
-    bestLbl.outlineColor = new Color(0.55f, 0.30f, 0f, 1f);
-    bestLbl.outlineWidth = 0.25f;
-    bestLbl.alignment = TextAlignmentOptions.Center;
-    RectTransform bestLblRT = bestLblGO.GetComponent<RectTransform>();
-    bestLblRT.anchorMin = new Vector2(0.5f, 0.5f); bestLblRT.anchorMax = new Vector2(0.5f, 0.5f);
-    bestLblRT.pivot     = new Vector2(0.5f, 0.5f);
-    bestLblRT.sizeDelta        = new Vector2(300, 46);
-    bestLblRT.anchoredPosition = new Vector2(0, 230);
+    // Draw order (low→high sibling = back→front): glow → bar → BEST label
+    // Positions pushed up to sit tight under the logo with minimal gap.
 
-    // ── Gold glow behind the bar ──────────────────────────────────────
+    // ── Gold glow ─────────────────────────────────────────────────────
     GameObject glowGO = new GameObject("BestScoreGlow");
     glowGO.transform.SetParent(mainCanvas.transform, false);
     Image glowImg = glowGO.AddComponent<Image>();
     Sprite glowSpr = Resources.Load<Sprite>("glow_gold");
     if (glowSpr != null) { glowImg.sprite = glowSpr; glowImg.preserveAspect = false; }
-    else glowImg.color = new Color(1f, 0.82f, 0.1f, 0.35f);
-    glowImg.color = new Color(1f, 1f, 1f, 0.55f);
+    glowImg.color = new Color(1f, 1f, 1f, 0.50f);
     RectTransform glowRT = glowGO.GetComponent<RectTransform>();
     glowRT.anchorMin = new Vector2(0.5f, 0.5f); glowRT.anchorMax = new Vector2(0.5f, 0.5f);
     glowRT.pivot     = new Vector2(0.5f, 0.5f);
     glowRT.sizeDelta        = new Vector2(480, 140);
-    glowRT.anchoredPosition = new Vector2(0, 185);
+    glowRT.anchoredPosition = new Vector2(0, 255);
 
-    // ── Gold bar background ───────────────────────────────────────────
+    // ── Gold bar ──────────────────────────────────────────────────────
     GameObject cardGO = new GameObject("BestScoreCard");
     bestScoreCard = cardGO;
     cardGO.transform.SetParent(mainCanvas.transform, false);
     Image cardImg = cardGO.AddComponent<Image>();
     Sprite barSpr = Resources.Load<Sprite>("bar_gold");
     if (barSpr != null) { cardImg.sprite = barSpr; cardImg.preserveAspect = false; }
-    else cardImg.color = new Color(0.72f, 0.46f, 0.06f);
     cardImg.color = Color.white;
     RectTransform cardRT = cardGO.GetComponent<RectTransform>();
     cardRT.anchorMin = new Vector2(0.5f, 0.5f); cardRT.anchorMax = new Vector2(0.5f, 0.5f);
     cardRT.pivot     = new Vector2(0.5f, 0.5f);
-    cardRT.sizeDelta        = new Vector2(400, 105);
-    cardRT.anchoredPosition = new Vector2(0, 185);
+    cardRT.sizeDelta        = new Vector2(400, 108);
+    cardRT.anchoredPosition = new Vector2(0, 255);
 
-    // ── Score number text — full bar width, centered ──────────────────
+    // ── Score number ──────────────────────────────────────────────────
     GameObject bestGO = new GameObject("BestScoreText");
     bestGO.transform.SetParent(cardGO.transform, false);
     bestScoreText = bestGO.AddComponent<TextMeshProUGUI>();
@@ -2156,12 +2139,27 @@ void CreateBestScoreText()
     scoreRT.anchorMin = Vector2.zero; scoreRT.anchorMax = Vector2.one;
     scoreRT.offsetMin = new Vector2(12, 4); scoreRT.offsetMax = new Vector2(-12, -4);
 
-    glowGO.transform.SetSiblingIndex(cardGO.transform.GetSiblingIndex() - 1);
-    bestLblGO.transform.SetSiblingIndex(glowGO.transform.GetSiblingIndex() - 1);
+    // ── "BEST" label — drawn LAST so it renders on top of glow ────────
+    GameObject bestLblGO = new GameObject("BestLabel");
+    bestLblGO.transform.SetParent(mainCanvas.transform, false);
+    TextMeshProUGUI bestLbl = bestLblGO.AddComponent<TextMeshProUGUI>();
+    bestLbl.font         = tmpFont;
+    bestLbl.text         = "BEST";
+    bestLbl.fontSize     = 36;
+    bestLbl.fontStyle    = FontStyles.Bold;
+    bestLbl.color        = new Color(1f, 0.92f, 0.1f);
+    bestLbl.outlineColor = new Color(0.55f, 0.30f, 0f, 1f);
+    bestLbl.outlineWidth = 0.25f;
+    bestLbl.alignment    = TextAlignmentOptions.Center;
+    RectTransform bestLblRT = bestLblGO.GetComponent<RectTransform>();
+    bestLblRT.anchorMin = new Vector2(0.5f, 0.5f); bestLblRT.anchorMax = new Vector2(0.5f, 0.5f);
+    bestLblRT.pivot     = new Vector2(0.5f, 0.5f);
+    bestLblRT.sizeDelta        = new Vector2(300, 46);
+    bestLblRT.anchoredPosition = new Vector2(0, 313);
 
     RefreshBestScore();
 
-    // ── Tagline "Flip. Dash. Survive." ───────────────────────────────
+    // ── Tagline ────────────────────────────────────────────────────────
     GameObject tagGO = new GameObject("Tagline");
     tagGO.transform.SetParent(mainCanvas.transform, false);
     _taglineText = tagGO.AddComponent<TextMeshProUGUI>();
@@ -2175,7 +2173,7 @@ void CreateBestScoreText()
     tagRT.anchorMin = new Vector2(0.5f, 0.5f); tagRT.anchorMax = new Vector2(0.5f, 0.5f);
     tagRT.pivot     = new Vector2(0.5f, 0.5f);
     tagRT.sizeDelta        = new Vector2(500, 54);
-    tagRT.anchoredPosition = new Vector2(0, 105);
+    tagRT.anchoredPosition = new Vector2(0, 178);
 }
 
 void RefreshBestScore()
