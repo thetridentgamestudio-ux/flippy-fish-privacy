@@ -337,6 +337,7 @@ void CreateBackground()
     else
         player.transform.localScale = new Vector3(0.6f * visualScale * 2.0f, 0.6f * visualScale * 2.0f, 1f);
     originalPlayerScale = player.transform.localScale;
+    player.SetActive(false); // hidden until game starts — don't show on menu screen
 
     // -----------------------------
     // Add AudioSource
@@ -1111,6 +1112,7 @@ IEnumerator FadeInGameOverUI()
 
 public void StartGame()
 {
+    if (player != null) player.SetActive(true);
     _currentSpeed    = 4.0f;
     _currentGravity  = 1.0f;
     lastGap          = 3.2f;
@@ -1299,6 +1301,7 @@ void CreateUIText()
 // directStart=false: show TAP TO START screen (used by multiplayer lobby before HideMenuUI is called).
 public void RestartGame(bool directStart = true)
 {
+    if (player != null) player.SetActive(true);
     // Do NOT clear _isMultiplayerRound here.
     // StartMultiplayerRound() sets it true AFTER calling RestartGame() — clearing it here
     // would always make it false by the time TriggerGameOver() checks it.

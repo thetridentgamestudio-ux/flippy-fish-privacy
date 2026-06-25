@@ -711,6 +711,19 @@ IEnumerator RestorePlayerTab()
             cRT.anchorMin = new Vector2(anchorMinX, 0f); cRT.anchorMax = new Vector2(anchorMaxX, 1f);
             cRT.offsetMin = cRT.offsetMax = Vector2.zero;
 
+            // Light circle backdrop so dark sprites are visible
+            var bgCircleGO  = new GameObject("IconBg");
+            bgCircleGO.transform.SetParent(container.transform, false);
+            var bgCircleImg = bgCircleGO.AddComponent<Image>();
+            Sprite roundedBg = GetRoundedSprite();
+            if (roundedBg != null) { bgCircleImg.sprite = roundedBg; bgCircleImg.type = Image.Type.Sliced; bgCircleImg.pixelsPerUnitMultiplier = 0.15f; }
+            bgCircleImg.color = new Color(0.18f, 0.30f, 0.50f, 0.70f);
+            var bgCircleRT  = bgCircleGO.GetComponent<RectTransform>();
+            bgCircleRT.anchorMin = new Vector2(0.5f, 0.5f); bgCircleRT.anchorMax = new Vector2(0.5f, 0.5f);
+            bgCircleRT.pivot     = new Vector2(0.5f, 0.5f);
+            bgCircleRT.sizeDelta        = new Vector2(180, 180);
+            bgCircleRT.anchoredPosition = string.IsNullOrEmpty(labelText) ? new Vector2(0, 0) : new Vector2(0, 22);
+
             var iconGO  = new GameObject("Icon");
             iconGO.transform.SetParent(container.transform, false);
             var iconImg = iconGO.AddComponent<Image>();
@@ -720,7 +733,7 @@ IEnumerator RestorePlayerTab()
             var iconRT  = iconGO.GetComponent<RectTransform>();
             iconRT.anchorMin = new Vector2(0.5f, 0.5f); iconRT.anchorMax = new Vector2(0.5f, 0.5f);
             iconRT.pivot     = new Vector2(0.5f, 0.5f);
-            iconRT.sizeDelta        = new Vector2(170, 170);
+            iconRT.sizeDelta        = new Vector2(140, 140);
             iconRT.anchoredPosition = string.IsNullOrEmpty(labelText) ? new Vector2(0, 0) : new Vector2(0, 22);
 
             if (!string.IsNullOrEmpty(labelText))
