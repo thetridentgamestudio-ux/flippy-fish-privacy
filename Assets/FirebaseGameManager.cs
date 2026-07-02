@@ -659,7 +659,7 @@ IEnumerator RestorePlayerTab()
         _bottomNavBar = new GameObject("BottomNavBar");
         _bottomNavBar.transform.SetParent(canvasGO.transform, false);
         var navImg = _bottomNavBar.AddComponent<Image>();
-        navImg.color = new Color(0f, 0.05f, 0.15f, 0.55f); // dark tint so icons read over sandy floor
+        navImg.color = Color.clear; // transparent — game background shows through, no black seam
         var navRT = _bottomNavBar.GetComponent<RectTransform>();
         navRT.anchorMin = new Vector2(0, 0); navRT.anchorMax = new Vector2(1, 0);
         navRT.pivot     = new Vector2(0.5f, 0);

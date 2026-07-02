@@ -2307,8 +2307,8 @@ void CreateBestScoreText()
     glowGO.transform.SetParent(mainCanvas.transform, false);
     Image glowImg = glowGO.AddComponent<Image>();
     Sprite glowSpr = Resources.Load<Sprite>("glow_gold");
-    if (glowSpr != null) { glowImg.sprite = glowSpr; glowImg.preserveAspect = false; }
-    glowImg.color = new Color(1f, 1f, 1f, 0.50f);
+    if (glowSpr != null) { glowImg.sprite = glowSpr; glowImg.preserveAspect = false; glowImg.color = new Color(1f, 1f, 1f, 0.50f); }
+    else { glowGO.SetActive(false); } // hide instead of showing Unity's default white square
     RectTransform glowRT = glowGO.GetComponent<RectTransform>();
     glowRT.anchorMin = new Vector2(0.5f, 0.5f); glowRT.anchorMax = new Vector2(0.5f, 0.5f);
     glowRT.pivot     = new Vector2(0.5f, 0.5f);
@@ -2357,9 +2357,9 @@ void CreateBestScoreText()
     _taglineText.text      = "Flip. Dash. Survive.";
     _taglineText.fontSize  = 44;
     _taglineText.fontStyle = FontStyles.Bold | FontStyles.Italic;
-    _taglineText.color            = new Color(0.15f, 0.30f, 0.50f);
-    _taglineText.outlineColor     = new Color(0f, 0.15f, 0.30f, 1f);
-    _taglineText.outlineWidth     = 0.20f;
+    _taglineText.color            = new Color(1f, 1f, 1f, 0.92f);
+    _taglineText.outlineColor     = new Color(0f, 0.04f, 0.10f, 1f);
+    _taglineText.outlineWidth     = 0.38f;
     _taglineText.alignment        = TextAlignmentOptions.Center;
     _taglineText.textWrappingMode = TextWrappingModes.NoWrap;
     _taglineText.overflowMode     = TextOverflowModes.Overflow;
