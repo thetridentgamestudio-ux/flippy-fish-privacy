@@ -24,6 +24,8 @@ public class FirebaseGameManager : MonoBehaviour
     // ── Start-screen layout roots ─────────────────────────────────────────
     private TextMeshProUGUI _topBarUsernameLabel;
     private GameObject _topBarRoot;
+    private GameObject _coinPillGO; // kept separate so it survives HideStartMenuElements
+    private int _runStartCoins = 0; // wallet snapshot at run start — display baseline
     private GameObject _mainButtonsRoot;
     private GameObject _bottomNavBar;
     int lastScore;
@@ -36,10 +38,15 @@ public class FirebaseGameManager : MonoBehaviour
     private const float INTERSTITIAL_COOLDOWN = 90f; // 90s between ads (industry standard for hyper-casual)
 
     [Header("UI Panels")]
-    public GameObject usernamePanel;      // Assign in Inspector
-    public TMP_InputField usernameInput;  // Assign in Inspector
-    public GameObject leaderboardPanel;   // Assign in Inspector
-    public TextMeshProUGUI leaderboardText; // Assign in Inspector
+    public GameObject usernamePanel;
+    public TMP_InputField usernameInput;
+    public GameObject leaderboardPanel;
+    public TextMeshProUGUI leaderboardText;
+    // Row-based player leaderboard
+    private List<(string username, int score)> _lastScores = new List<(string, int)>();
+    private GameObject _playerRowContainer;
+    private readonly List<GameObject> _playerRows = new List<GameObject>();
+    private Sprite _circleSprite;
     bool isSoundOn = true;
     Image soundIconImage;
     GameObject soundButtonObj;
@@ -253,66 +260,16 @@ scoreTextUI.gameObject.SetActive(true);
             scores.Add((user, s));
         }
 
-        scores = scores.OrderByDescending(x => x.score).ToList();
+        // Deduplicate: best score per player only — no duplicate entries
+        scores = scores
+            .GroupBy(x => x.username)
+            .Select(g => (username: g.Key, score: g.Max(x => x.score)))
+            .OrderByDescending(x => x.score)
+            .Take(10)
+            .ToList();
 
-        System.Text.StringBuilder display = new System.Text.StringBuilder();
-
-        // Column positions scale with panel width
-        // Panel width = Screen.width * 0.88, text has 70px left margin
-        // So usable text width ≈ Screen.width * 0.88 - 140
-        int colName  = Mathf.RoundToInt(Screen.width * 0.12f); // name column
-        int colScore = Mathf.RoundToInt(Screen.width * 0.62f); // score column
-        int maxChars = 11; // max username chars before truncation
-
-        string[] topLabels = { "  ", "  ", "  " }; // blank — medal image sits here
-
-        for (int i = 0; i < scores.Count; i++)
-        {
-            string rank = i < 3 ? topLabels[i] : $"{i + 1}.";
-            string name = scores[i].username.Length > maxChars
-                          ? scores[i].username.Substring(0, maxChars)
-                          : scores[i].username;
-            string sc   = scores[i].score.ToString();
-
-            bool isMe = scores[i].username == playerUsername;
-            string line = $"<pos=0>{rank}<pos={colName}>{name}<pos={colScore}>{sc}";
-
-            if (isMe)
-                display.Append($"<color=#FFE234><b>{line}</b></color>\n");
-            else
-                display.Append($"{line}\n");
-        }
-
-        int playerRank = scores.FindIndex(x => x.username == playerUsername) + 1;
-        if (playerRank > 0)
-            display.Append($"\n<color=#FFE234><b><pos={colName}>Your Rank: #{playerRank}</b></color>");
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        // APPLY TEXT
-        StartCoroutine(ShowLeaderboardNextFrame(display.ToString(), scores.Count));
-
-        // Build country standings from same snapshot and cache it
+        _lastScores = scores;
+        StartCoroutine(ShowLeaderboardNextFrame(scores.Count));
         BuildCountryStandings(scores);
     });
 
@@ -364,42 +321,44 @@ void BuildCountryStandings(List<(string username, int score)> scores)
 
 void EnsureLeaderboardTabs()
 {
-    if (_tabPlayers != null) return; // already created
-    if (leaderboardPanel == null) return;
+    return; // tabs removed — players only view
 
-    float panelW  = Screen.width  * 0.88f;
-    float panelH  = Screen.height * 0.60f;
-    float tabW    = panelW * 0.42f;
-    float tabH    = Screen.height * 0.052f;
-    float titleH  = Screen.height * 0.055f;
-    // Title bottom from panel centre = panelH/2 - 12 - titleH
-    float titleBottom = panelH * 0.5f - 12f - titleH;
-    // Tab centre is half a tabH below the title bottom, with 8px gap
-    float tabY    = titleBottom - tabH * 0.5f - 8f;
+    float tabW  = 320f;
+    float tabH  = 88f;
+    float tabY  = -275f;
 
-    // PLAYERS tab
-    _tabPlayers = new GameObject("Tab_Players");
-    _tabPlayers.transform.SetParent(leaderboardPanel.transform, false);
-    _tabPlayers.AddComponent<Image>().color = new Color(0.15f, 0.35f, 0.6f, 1f);
-    var tabPlayersBtn = _tabPlayers.AddComponent<Button>();
-    tabPlayersBtn.onClick.AddListener(() => SwitchTab(false));
-    var tpRT = _tabPlayers.GetComponent<RectTransform>();
-    tpRT.anchorMin = tpRT.anchorMax = tpRT.pivot = new Vector2(0.5f, 0.5f);
-    tpRT.sizeDelta = new Vector2(tabW, tabH);
-    tpRT.anchoredPosition = new Vector2(-tabW * 0.5f - 4f, tabY);
-    AddTabLabel(_tabPlayers, "🏆 PLAYERS");
+    Sprite playersSpr = Resources.Load<Sprite>("Players_LB");
+    Sprite countrySpr = Resources.Load<Sprite>("Country_LB");
 
-    // COUNTRIES tab
-    _tabCountries = new GameObject("Tab_Countries");
-    _tabCountries.transform.SetParent(leaderboardPanel.transform, false);
-    _tabCountries.AddComponent<Image>().color = new Color(0.1f, 0.38f, 0.18f, 1f);
-    var tabCountriesBtn = _tabCountries.AddComponent<Button>();
-    tabCountriesBtn.onClick.AddListener(() => SwitchTab(true));
-    var tcRT = _tabCountries.GetComponent<RectTransform>();
-    tcRT.anchorMin = tcRT.anchorMax = tcRT.pivot = new Vector2(0.5f, 0.5f);
-    tcRT.sizeDelta = new Vector2(tabW, tabH);
-    tcRT.anchoredPosition = new Vector2(tabW * 0.5f + 4f, tabY);
-    AddTabLabel(_tabCountries, "🌍 COUNTRIES");
+    void MakeTab(ref GameObject field, string goName, string labelText,
+                 Sprite spr, float pivotX, float anchorX, float xPos, bool active,
+                 System.Action onClick)
+    {
+        field = new GameObject(goName);
+        field.transform.SetParent(leaderboardPanel.transform, false);
+        Image img = field.AddComponent<Image>();
+        if (spr != null) { img.sprite = spr; img.type = Image.Type.Simple; img.preserveAspect = false; }
+        img.color = active ? Color.white : new Color(1f,1f,1f,0.55f);
+        field.AddComponent<Button>().onClick.AddListener(() => onClick());
+        var rt = field.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(anchorX, 1f); rt.anchorMax = new Vector2(anchorX, 1f);
+        rt.pivot     = new Vector2(pivotX, 1f);
+        rt.sizeDelta = new Vector2(tabW, tabH);
+        rt.anchoredPosition = new Vector2(xPos, tabY);
+
+        // Text label on top of sprite
+        var lgo = new GameObject("Label"); lgo.transform.SetParent(field.transform, false);
+        var ltmp = lgo.AddComponent<TextMeshProUGUI>();
+        ltmp.text = labelText; ltmp.fontSize = 36f; ltmp.fontStyle = FontStyles.Bold;
+        ltmp.alignment = TextAlignmentOptions.Center;
+        ltmp.color = active ? new Color(1f,0.92f,0.15f,1f) : new Color(0.85f,0.90f,1f,0.80f);
+        var lrt = ltmp.GetComponent<RectTransform>();
+        lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
+        lrt.offsetMin = lrt.offsetMax = Vector2.zero;
+    }
+
+    MakeTab(ref _tabPlayers,  "Tab_Players",  "PLAYERS",  playersSpr, 1f, 0.5f, -8f,  true,  () => SwitchTab(false));
+    MakeTab(ref _tabCountries,"Tab_Countries","COUNTRIES",countrySpr, 0f, 0.5f,  8f,  false, () => SwitchTab(true));
 }
 
 void AddTabLabel(GameObject tab, string text)
@@ -408,7 +367,7 @@ void AddTabLabel(GameObject tab, string text)
     go.transform.SetParent(tab.transform, false);
     var tmp = go.AddComponent<TextMeshProUGUI>();
     tmp.text = text; tmp.fontStyle = FontStyles.Bold;
-    tmp.fontSize = Screen.height * 0.019f;
+    tmp.fontSize = 34f;  // larger tab labels
     tmp.color = Color.white; tmp.alignment = TextAlignmentOptions.Center;
     var rt = tmp.GetComponent<RectTransform>();
     rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
@@ -420,10 +379,18 @@ void SwitchTab(bool showCountries)
     _showingCountries = showCountries;
 
     // Highlight active tab
-    if (_tabPlayers   != null) _tabPlayers.GetComponent<Image>().color   = showCountries
-        ? new Color(0.08f, 0.20f, 0.40f, 1f) : new Color(0.25f, 0.50f, 0.85f, 1f);
-    if (_tabCountries != null) _tabCountries.GetComponent<Image>().color = showCountries
-        ? new Color(0.15f, 0.55f, 0.25f, 1f) : new Color(0.08f, 0.25f, 0.12f, 1f);
+    void StyleTab(GameObject tab, bool isActive)
+    {
+        if (tab == null) return;
+        tab.GetComponent<Image>().color = isActive ? Color.white : new Color(1f,1f,1f,0.55f);
+        var lbl = tab.transform.Find("Label")?.GetComponent<TextMeshProUGUI>();
+        if (lbl != null) lbl.color = isActive ? new Color(1f,0.92f,0.15f,1f) : new Color(0.85f,0.90f,1f,0.80f);
+    }
+    StyleTab(_tabPlayers,  !showCountries);
+    StyleTab(_tabCountries, showCountries);
+
+    if (leaderboardText != null) leaderboardText.gameObject.SetActive(showCountries);
+    if (_playerRowContainer != null) _playerRowContainer.SetActive(!showCountries);
 
     if (showCountries)
         ShowCountryTab();
@@ -433,6 +400,9 @@ void SwitchTab(bool showCountries)
 
 void ShowCountryTab()
 {
+    if (_playerRowContainer != null) _playerRowContainer.SetActive(false);
+    if (leaderboardText != null) leaderboardText.gameObject.SetActive(true);
+
     if (_countryStandings.Count == 0)
     {
         leaderboardText.text = "\n<color=#aaa>No country data yet.\nPlay more games!</color>";
@@ -472,9 +442,9 @@ void ShowCountryTab()
 
 IEnumerator RestorePlayerTab()
 {
-    // Re-fetch player leaderboard to restore text
     yield return null;
-    ShowLeaderboardUI(lastScore);
+    if (leaderboardText != null) leaderboardText.gameObject.SetActive(false);
+    BuildPlayerRows(_lastScores, playerUsername);
 }
 
     // Full-canvas invisible layer — children use it as their anchor base
@@ -522,27 +492,27 @@ IEnumerator RestorePlayerTab()
         var helpRT = helpGO.GetComponent<RectTransform>();
         helpRT.anchorMin = new Vector2(0, 1); helpRT.anchorMax = new Vector2(0, 1);
         helpRT.pivot     = new Vector2(0, 1);
-        helpRT.sizeDelta        = new Vector2(112, 112);
-        helpRT.anchoredPosition = new Vector2(60, -52);
+        helpRT.sizeDelta        = new Vector2(90, 90);
+        helpRT.anchoredPosition = new Vector2(40, -52);
 
         // Username pill — top center (solid dark pill, no sprite stretch issues)
         var userPillGO  = new GameObject("UsernamePill");
         userPillGO.transform.SetParent(_topBarRoot.transform, false);
         var userPillImg = userPillGO.AddComponent<Image>();
-        Sprite roundedPill = GetRoundedSprite();
+        Sprite roundedPill = pillSpr ?? GetRoundedSprite();
         if (roundedPill != null) { userPillImg.sprite = roundedPill; userPillImg.type = Image.Type.Sliced; userPillImg.pixelsPerUnitMultiplier = 0.3f; }
-        userPillImg.color = new Color(0.06f, 0.10f, 0.20f, 0.95f);
+        userPillImg.color = Color.white;
         var userPillRT = userPillGO.GetComponent<RectTransform>();
         userPillRT.anchorMin = new Vector2(0.5f, 1); userPillRT.anchorMax = new Vector2(0.5f, 1);
         userPillRT.pivot     = new Vector2(0.5f, 1);
-        userPillRT.sizeDelta        = new Vector2(430, 92);
+        userPillRT.sizeDelta        = new Vector2(430, 90);
         userPillRT.anchoredPosition = new Vector2(0, -52);
 
         // Username text inside pill — full width, centered
         var uTxtGO   = new GameObject("UsernameLabel");
         uTxtGO.transform.SetParent(userPillGO.transform, false);
         _topBarUsernameLabel = uTxtGO.AddComponent<TextMeshProUGUI>();
-        _topBarUsernameLabel.text      = PlayerPrefs.GetString("USERNAME", "Player");
+        _topBarUsernameLabel.text      = GetDisplayName(PlayerPrefs.GetString("USERNAME", "Player"));
         _topBarUsernameLabel.fontSize  = 30;
         _topBarUsernameLabel.fontStyle = FontStyles.Bold;
         _topBarUsernameLabel.color     = Color.white;
@@ -553,12 +523,13 @@ IEnumerator RestorePlayerTab()
         uTxtRT.anchorMin = Vector2.zero; uTxtRT.anchorMax = Vector2.one;
         uTxtRT.offsetMin = new Vector2(12, 4); uTxtRT.offsetMax = new Vector2(-12, -4);
 
-        // Coin pill — top right
+        // Coin pill — lives on the canvas directly so it stays visible during gameplay
         var coinPillGO  = new GameObject("CoinPill");
-        coinPillGO.transform.SetParent(_topBarRoot.transform, false);
+        coinPillGO.transform.SetParent(canvasGO.transform, false);
+        _coinPillGO = coinPillGO;
         var coinPillImg = coinPillGO.AddComponent<Image>();
         if (roundedPill != null) { coinPillImg.sprite = roundedPill; coinPillImg.type = Image.Type.Sliced; coinPillImg.pixelsPerUnitMultiplier = 0.3f; }
-        coinPillImg.color = new Color(0.06f, 0.10f, 0.20f, 0.95f);
+        coinPillImg.color = Color.white;
         var coinPillRT  = coinPillGO.GetComponent<RectTransform>();
         coinPillRT.anchorMin = new Vector2(1, 1); coinPillRT.anchorMax = new Vector2(1, 1);
         coinPillRT.pivot     = new Vector2(1, 1);
@@ -672,11 +643,11 @@ IEnumerator RestorePlayerTab()
             var rt = go.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(0.5f, 0.5f); rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot     = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta        = new Vector2(860, height);
+            rt.sizeDelta        = new Vector2(780, height);
             rt.anchoredPosition = new Vector2(0, yPos);
         }
 
-        MakeSpriteButton(_mainButtonsRoot.transform, "StartButton", "start_button", -90f, 148f, OnSubmitUsername);
+        MakeSpriteButton(_mainButtonsRoot.transform, "StartButton", "start_button", -300f, 176f, OnSubmitUsername);
 
         // Keep sound button but hide it from start menu; it shows during gameplay
         CreateSoundButton(usernamePanel);
@@ -688,17 +659,19 @@ IEnumerator RestorePlayerTab()
         _bottomNavBar = new GameObject("BottomNavBar");
         _bottomNavBar.transform.SetParent(canvasGO.transform, false);
         var navImg = _bottomNavBar.AddComponent<Image>();
-        navImg.color = new Color(0f, 0f, 0f, 0f); // transparent — no dark bar
+        navImg.color = new Color(0f, 0.05f, 0.15f, 0.55f); // dark tint so icons read over sandy floor
         var navRT = _bottomNavBar.GetComponent<RectTransform>();
         navRT.anchorMin = new Vector2(0, 0); navRT.anchorMax = new Vector2(1, 0);
         navRT.pivot     = new Vector2(0.5f, 0);
-        navRT.sizeDelta        = new Vector2(0, 220);
-        navRT.anchoredPosition = Vector2.zero;
+        navRT.sizeDelta        = new Vector2(0, 280);
+        navRT.anchoredPosition = new Vector2(0, 40);
 
         // Helper: nav item (icon + optional label) — each section is 1/3 of nav bar
+        // iconOverrideText: when non-empty, renders a TMP text icon instead of a sprite (for dark/missing sprites)
         void MakeNavItem(string goName, string iconSpriteName, string labelText,
                          float anchorMinX, float anchorMaxX,
-                         UnityEngine.Events.UnityAction onClickAction, bool showDot = false)
+                         UnityEngine.Events.UnityAction onClickAction, bool showDot = false,
+                         string iconOverrideText = "", float iconSize = 140)
         {
             var container = new GameObject(goName);
             container.transform.SetParent(_bottomNavBar.transform, false);
@@ -711,30 +684,36 @@ IEnumerator RestorePlayerTab()
             cRT.anchorMin = new Vector2(anchorMinX, 0f); cRT.anchorMax = new Vector2(anchorMaxX, 1f);
             cRT.offsetMin = cRT.offsetMax = Vector2.zero;
 
-            // Light circle backdrop so dark sprites are visible
-            var bgCircleGO  = new GameObject("IconBg");
-            bgCircleGO.transform.SetParent(container.transform, false);
-            var bgCircleImg = bgCircleGO.AddComponent<Image>();
-            Sprite roundedBg = GetRoundedSprite();
-            if (roundedBg != null) { bgCircleImg.sprite = roundedBg; bgCircleImg.type = Image.Type.Sliced; bgCircleImg.pixelsPerUnitMultiplier = 0.15f; }
-            bgCircleImg.color = new Color(0.18f, 0.30f, 0.50f, 0.70f);
-            var bgCircleRT  = bgCircleGO.GetComponent<RectTransform>();
-            bgCircleRT.anchorMin = new Vector2(0.5f, 0.5f); bgCircleRT.anchorMax = new Vector2(0.5f, 0.5f);
-            bgCircleRT.pivot     = new Vector2(0.5f, 0.5f);
-            bgCircleRT.sizeDelta        = new Vector2(180, 180);
-            bgCircleRT.anchoredPosition = string.IsNullOrEmpty(labelText) ? new Vector2(0, 0) : new Vector2(0, 22);
+            Vector2 iconPos = string.IsNullOrEmpty(labelText) ? new Vector2(0, 10) : new Vector2(0, 30);
 
-            var iconGO  = new GameObject("Icon");
+            var iconGO = new GameObject("Icon");
             iconGO.transform.SetParent(container.transform, false);
-            var iconImg = iconGO.AddComponent<Image>();
-            Sprite spr = Resources.Load<Sprite>(iconSpriteName);
-            if (spr != null) { iconImg.sprite = spr; iconImg.color = Color.white; iconImg.preserveAspect = true; }
-            else iconImg.color = new Color(0.7f, 0.9f, 1f, 0.5f);
-            var iconRT  = iconGO.GetComponent<RectTransform>();
-            iconRT.anchorMin = new Vector2(0.5f, 0.5f); iconRT.anchorMax = new Vector2(0.5f, 0.5f);
-            iconRT.pivot     = new Vector2(0.5f, 0.5f);
-            iconRT.sizeDelta        = new Vector2(140, 140);
-            iconRT.anchoredPosition = string.IsNullOrEmpty(labelText) ? new Vector2(0, 0) : new Vector2(0, 22);
+            Sprite spr = string.IsNullOrEmpty(iconOverrideText) ? Resources.Load<Sprite>(iconSpriteName) : null;
+            if (spr != null)
+            {
+                var iconImg = iconGO.AddComponent<Image>();
+                iconImg.sprite = spr; iconImg.color = Color.white; iconImg.preserveAspect = true;
+                var iconRT  = iconGO.GetComponent<RectTransform>();
+                iconRT.anchorMin = new Vector2(0.5f, 0.5f); iconRT.anchorMax = new Vector2(0.5f, 0.5f);
+                iconRT.pivot     = new Vector2(0.5f, 0.5f);
+                iconRT.sizeDelta        = new Vector2(iconSize, iconSize);
+                iconRT.anchoredPosition = iconPos;
+            }
+            else
+            {
+                // Text-based icon — always visible regardless of sprite color
+                var iconTxt = iconGO.AddComponent<TextMeshProUGUI>();
+                iconTxt.text      = string.IsNullOrEmpty(iconOverrideText) ? "●" : iconOverrideText;
+                iconTxt.fontSize  = 64;
+                iconTxt.fontStyle = FontStyles.Bold;
+                iconTxt.alignment = TextAlignmentOptions.Center;
+                iconTxt.color     = new Color(0.72f, 0.90f, 1f);
+                var iconTxtRT = iconTxt.rectTransform;
+                iconTxtRT.anchorMin = new Vector2(0.5f, 0.5f); iconTxtRT.anchorMax = new Vector2(0.5f, 0.5f);
+                iconTxtRT.pivot     = new Vector2(0.5f, 0.5f);
+                iconTxtRT.sizeDelta        = new Vector2(iconSize, iconSize);
+                iconTxtRT.anchoredPosition = iconPos;
+            }
 
             if (!string.IsNullOrEmpty(labelText))
             {
@@ -767,48 +746,13 @@ IEnumerator RestorePlayerTab()
             }
         }
 
-        // Skins — left third (icon has "Skins" text baked in)
-        MakeNavItem("SkinsButton", "icon_skins", "", 0f, 0.33f, () => SkinSelectUI.Show());
+        // Skins — far left
+        MakeNavItem("SkinsButton", "icon_skins", "", 0f, 0.35f, () => SkinSelectUI.Show(), false, "", 200);
         skinsButtonObj = _bottomNavBar.transform.Find("SkinsButton")?.gameObject;
 
-        // Quest — center third
-        MakeNavItem("QuestButton", "icon_quest", "Quest", 0.33f, 0.66f,
-                    () => GameBootstrap.Instance?.OpenDailyQuests(), showDot: true);
-
-        // Coins — right third
-        var coinDispGO = new GameObject("CoinDisplay");
-        coinDispGO.transform.SetParent(_bottomNavBar.transform, false);
-        var coinDispImg2 = coinDispGO.AddComponent<Image>();
-        coinDispImg2.color = new Color(0,0,0,0);
-        var coinDispRT = coinDispGO.GetComponent<RectTransform>();
-        coinDispRT.anchorMin = new Vector2(0.66f, 0f); coinDispRT.anchorMax = new Vector2(1f, 1f);
-        coinDispRT.offsetMin = coinDispRT.offsetMax = Vector2.zero;
-
-        // Stack: coin icon above, number below — both centered
-        var coinIconNavGO  = new GameObject("CoinIcon");
-        coinIconNavGO.transform.SetParent(coinDispGO.transform, false);
-        var coinIconNavImg = coinIconNavGO.AddComponent<Image>();
-        if (coinSpr != null) { coinIconNavImg.sprite = coinSpr; coinIconNavImg.color = Color.white; coinIconNavImg.preserveAspect = true; }
-        else coinIconNavImg.color = new Color(1f, 0.85f, 0.1f);
-        var coinIconNavRT  = coinIconNavGO.GetComponent<RectTransform>();
-        coinIconNavRT.anchorMin = new Vector2(0.5f, 0.5f); coinIconNavRT.anchorMax = new Vector2(0.5f, 0.5f);
-        coinIconNavRT.pivot     = new Vector2(0.5f, 0.5f);
-        coinIconNavRT.sizeDelta        = new Vector2(100, 100);
-        coinIconNavRT.anchoredPosition = new Vector2(0, 30);
-
-        var coinTxtNavGO = new GameObject("CoinLabel");
-        coinTxtNavGO.transform.SetParent(coinDispGO.transform, false);
-        var coinTxtNav   = coinTxtNavGO.AddComponent<TextMeshProUGUI>();
-        coinTxtNav.fontSize  = 40; coinTxtNav.fontStyle = FontStyles.Bold;
-        coinTxtNav.color     = new Color(1f, 0.92f, 0.2f);
-        coinTxtNav.alignment = TextAlignmentOptions.Center;
-        coinTxtNav.text      = SkinManager.GetCoins().ToString();
-        coinDisplayText      = coinTxtNav;
-        var coinTxtNavRT     = coinTxtNav.rectTransform;
-        coinTxtNavRT.anchorMin = new Vector2(0f, 0f); coinTxtNavRT.anchorMax = new Vector2(1f, 0f);
-        coinTxtNavRT.pivot     = new Vector2(0.5f, 0f);
-        coinTxtNavRT.sizeDelta        = new Vector2(0, 46);
-        coinTxtNavRT.anchoredPosition = new Vector2(0, 8);
+        // Quest — far right
+        MakeNavItem("QuestButton", "icon_quest", "", 0.65f, 1f,
+                    () => GameBootstrap.Instance?.OpenDailyQuests(), showDot: false, iconOverrideText: "", iconSize: 200);
     }
 
 void Create2PlayerButton(GameObject parent)
@@ -826,8 +770,9 @@ void Create2PlayerButton(GameObject parent)
     var mpRT = mpGO.GetComponent<RectTransform>();
     mpRT.anchorMin = new Vector2(0.5f, 0.5f); mpRT.anchorMax = new Vector2(0.5f, 0.5f);
     mpRT.pivot     = new Vector2(0.5f, 0.5f);
-    mpRT.sizeDelta        = new Vector2(860, 148);
-    mpRT.anchoredPosition = new Vector2(0, -268);
+    mpRT.sizeDelta        = new Vector2(780, 176);
+    mpRT.anchoredPosition = new Vector2(0, -336);
+    mpGO.SetActive(false); // TODO: re-enable when multiplayer is ready
 
     // GO PREMIUM — full sprite PNG
     var gpGO  = new GameObject("BattlePassButton");
@@ -842,8 +787,9 @@ void Create2PlayerButton(GameObject parent)
     var gpRT = gpGO.GetComponent<RectTransform>();
     gpRT.anchorMin = new Vector2(0.5f, 0.5f); gpRT.anchorMax = new Vector2(0.5f, 0.5f);
     gpRT.pivot     = new Vector2(0.5f, 0.5f);
-    gpRT.sizeDelta        = new Vector2(860, 148);
-    gpRT.anchoredPosition = new Vector2(0, -446);
+    gpRT.sizeDelta        = new Vector2(780, 176);
+    gpRT.anchoredPosition = new Vector2(0, -532);
+    gpGO.SetActive(false); // TODO: re-enable when premium is ready
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1544,13 +1490,13 @@ public void OnSubmitUsername()
         playerUsername = username;
         GameBootstrap.Instance.SaveUsername(username);
         GameBootstrap.Instance.RefreshUsernameText();
-        if (_topBarUsernameLabel != null) _topBarUsernameLabel.text = username;
+        if (_topBarUsernameLabel != null) _topBarUsernameLabel.text = GetDisplayName(username);
     }
     else
     {
         // Username already exists
         playerUsername = GameBootstrap.Instance.GetUsername();
-        if (_topBarUsernameLabel != null) _topBarUsernameLabel.text = playerUsername;
+        if (_topBarUsernameLabel != null) _topBarUsernameLabel.text = GetDisplayName(playerUsername);
     }
 
     if (usernamePanel != null)
@@ -1562,20 +1508,45 @@ public void OnSubmitUsername()
 
 public void HideStartMenuElements()
 {
-    if (_topBarRoot     != null) _topBarRoot.SetActive(false);
+    if (_topBarRoot      != null) _topBarRoot.SetActive(false);
     if (_mainButtonsRoot != null) _mainButtonsRoot.SetActive(false);
-    if (_bottomNavBar   != null) _bottomNavBar.SetActive(false);
-    if (usernamePanel   != null) usernamePanel.SetActive(false);
+    if (_bottomNavBar    != null) _bottomNavBar.SetActive(false);
+    if (usernamePanel    != null) usernamePanel.SetActive(false);
+
+    // Snapshot the wallet RIGHT NOW — this is the baseline for the run display
+    _runStartCoins = SkinManager.GetCoins();
+
+    // Move coin pill to bottom-right and show real wallet total
+    if (_coinPillGO != null)
+    {
+        var rt = _coinPillGO.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(1f, 0f); rt.anchorMax = new Vector2(1f, 0f);
+        rt.pivot     = new Vector2(1f, 0f);
+        rt.anchoredPosition = new Vector2(-30f, 40f);
+        _coinPillGO.SetActive(true);
+    }
+
+    if (coinDisplayText != null)
+        coinDisplayText.text = _runStartCoins.ToString();
 }
 
 public void ShowStartMenuElements()
 {
-    if (_topBarRoot     != null) _topBarRoot.SetActive(true);
+    if (_topBarRoot      != null) _topBarRoot.SetActive(true);
     if (_mainButtonsRoot != null) _mainButtonsRoot.SetActive(true);
-    if (_bottomNavBar   != null) _bottomNavBar.SetActive(true);
+    if (_bottomNavBar    != null) _bottomNavBar.SetActive(true);
     // usernamePanel only shown when no username set
     if (usernamePanel != null && !PlayerPrefs.HasKey("USERNAME"))
         usernamePanel.SetActive(true);
+
+    // Move coin pill back to top-right on menu
+    if (_coinPillGO != null)
+    {
+        var rt = _coinPillGO.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(1f, 1f); rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot     = new Vector2(1f, 1f);
+        rt.anchoredPosition = new Vector2(-60f, -52f);
+    }
 }
 
 public void SetUsername(string username)
@@ -1583,136 +1554,157 @@ public void SetUsername(string username)
     playerUsername = username;
 }
     #endregion
-   void CreateLeaderboardUI()
+void CreateLeaderboardUI()
 {
     GameObject canvas = mainCanvas.gameObject;
 
-    // PANEL
+    // ── Use canvas reference dimensions, NOT Screen.width/height ──────────────
+    // Screen pixels ≠ canvas units when ScaleWithScreenSize is active.
+    RectTransform canvasRT = mainCanvas.GetComponent<RectTransform>();
+    float cw = canvasRT.rect.width;   // ≈ 1080 canvas units on 1080×1920 ref
+    float ch = canvasRT.rect.height;  // ≈ 1920 canvas units on 1080×1920 ref
+
+    // ── Panel root — stretched full-screen so children can use relative anchors ─
     leaderboardPanel = new GameObject("LeaderboardPanel");
-    leaderboardPanel.transform.SetParent(canvas.transform);
-    GameObject titleGO = new GameObject("LeaderboardTitle");
-titleGO.transform.SetParent(leaderboardPanel.transform);
-
-TextMeshProUGUI titleText = titleGO.AddComponent<TextMeshProUGUI>();
-
-titleText.text = "*** LEADERBOARD ***";
-titleText.fontSize = Screen.height * 0.028f;
-titleText.fontStyle = FontStyles.Bold;
-titleText.alignment = TextAlignmentOptions.Center;
-titleText.color = new Color(1f, 0.9f, 0.2f); // gold
-
-RectTransform titleRect = titleGO.GetComponent<RectTransform>();
-titleRect.anchorMin = new Vector2(0.5f, 1f);
-titleRect.anchorMax = new Vector2(0.5f, 1f);
-titleRect.pivot = new Vector2(0.5f, 1f);
-titleRect.anchoredPosition = new Vector2(0, -12);
-titleRect.sizeDelta = new Vector2(Screen.width * 0.80f, Screen.height * 0.055f);
-
+    leaderboardPanel.transform.SetParent(canvas.transform, false);
     RectTransform panelRect = leaderboardPanel.AddComponent<RectTransform>();
-    panelRect.sizeDelta = new Vector2(Screen.width * 0.88f, Screen.height * 0.60f);
-    panelRect.anchorMin = new Vector2(0.5f, 0.5f);
-    panelRect.anchorMax = new Vector2(0.5f, 0.5f);
-    panelRect.pivot = new Vector2(0.5f, 0.5f);
-panelRect.anchoredPosition = new Vector2(0, Screen.height * 0.05f);
+    panelRect.anchorMin = Vector2.zero; panelRect.anchorMax = Vector2.one;
+    panelRect.offsetMin = Vector2.zero; // full screen — no insets
+    panelRect.offsetMax = Vector2.zero;
+    leaderboardPanel.AddComponent<Image>().color = Color.clear;   // invisible root
 
-    Image panelImage = leaderboardPanel.AddComponent<Image>();
-    //panelImage.color = new Color(0,0,0,0.85f);
-    Sprite panelSprite = Resources.Load<Sprite>("LeaderboardPanel");
+    // ── Cyan glow border ─────────────────────────────────────────────────────
+    GameObject borderGO = new GameObject("LB_Border");
+    borderGO.transform.SetParent(leaderboardPanel.transform, false);
+    borderGO.AddComponent<Image>().color = Color.clear; // image has its own frame
+    RectTransform borderRT = borderGO.GetComponent<RectTransform>();
+    borderRT.anchorMin = Vector2.zero; borderRT.anchorMax = Vector2.one;
+    borderRT.offsetMin = new Vector2(-8f, -8f); borderRT.offsetMax = new Vector2(8f, 8f);
 
-if(panelSprite != null)
-{
-    panelImage.sprite = panelSprite;
-    panelImage.type = Image.Type.Sliced;
-   panelImage.color = new Color(1f, 1f, 1f, 0.82f);
-}
-else
-{
-    Debug.LogError("LeaderboardPanel not found in Resources!");
-}
+    // ── Dark navy card ────────────────────────────────────────────────────────
+    GameObject cardGO = new GameObject("LB_Card");
+    cardGO.transform.SetParent(leaderboardPanel.transform, false);
+    Image cardImg = cardGO.AddComponent<Image>();
+    Sprite lbBg = Resources.Load<Sprite>("LeaderBoard-New");
+    if (lbBg != null) { cardImg.sprite = lbBg; cardImg.type = Image.Type.Simple; cardImg.preserveAspect = false; cardImg.color = Color.white; }
+    else cardImg.color = new Color(0.03f, 0.07f, 0.18f, 0.97f);
+    RectTransform cardRT = cardGO.GetComponent<RectTransform>();
+    cardRT.anchorMin = Vector2.zero; cardRT.anchorMax = Vector2.one;
+    cardRT.offsetMin = cardRT.offsetMax = Vector2.zero;
 
-    // TEXT OBJECT
+    // ── "LEADERBOARD" title ───────────────────────────────────────────────────
+    float titleH = 80f;  // fixed canvas units
+    GameObject titleGO = new GameObject("LB_Title");
+    titleGO.transform.SetParent(leaderboardPanel.transform, false);
+    TextMeshProUGUI titleTmp = titleGO.AddComponent<TextMeshProUGUI>();
+    titleTmp.text = "LEADERBOARD";
+    titleTmp.fontSize = 56f;
+    titleTmp.fontStyle = FontStyles.Bold;
+    titleTmp.alignment = TextAlignmentOptions.Center;
+    titleTmp.color = Color.clear; // image already has LEADERBOARD baked in
+    titleTmp.outlineColor = new Color(0.05f, 0.85f, 0.90f, 1f);
+    titleTmp.outlineWidth = 0.28f;
+    RectTransform titleRT = titleGO.GetComponent<RectTransform>();
+    titleRT.anchorMin = new Vector2(0f, 1f); titleRT.anchorMax = new Vector2(1f, 1f);
+    titleRT.pivot = new Vector2(0.5f, 1f);
+    titleRT.anchoredPosition = new Vector2(0f, -18f);
+    titleRT.sizeDelta = new Vector2(0f, titleH);
+
+    // ── Teal divider under title ──────────────────────────────────────────────
+    GameObject divGO = new GameObject("LB_Divider");
+    divGO.transform.SetParent(leaderboardPanel.transform, false);
+    divGO.AddComponent<Image>().color = Color.clear; // image has its own divider
+    RectTransform divRT = divGO.GetComponent<RectTransform>();
+    divRT.anchorMin = new Vector2(0.04f, 1f); divRT.anchorMax = new Vector2(0.96f, 1f);
+    divRT.pivot = new Vector2(0.5f, 1f);
+    divRT.anchoredPosition = new Vector2(0f, -(18f + titleH + 4f));
+    divRT.sizeDelta = new Vector2(0f, 3f);
+
+    // ── Leaderboard text ──────────────────────────────────────────────────────
+    float tabH     = 52f;   // fixed canvas units
+    float topInset = 340f;  // full-screen panel — content starts well below image title
+    float botInset = 130f;  // above restart button
+
     GameObject textGO = new GameObject("LeaderboardText");
-    textGO.transform.SetParent(leaderboardPanel.transform);
-
+    textGO.transform.SetParent(leaderboardPanel.transform, false);
     leaderboardText = textGO.AddComponent<TextMeshProUGUI>();
 
-    // LOAD MONO FONT
     TMP_FontAsset monoFont = Resources.Load<TMP_FontAsset>("Fonts/JetBrainsMono-Regular SDF");
+    if (monoFont != null) leaderboardText.font = monoFont;
 
-    if(monoFont != null)
-        leaderboardText.font = monoFont;
-    else
-        Debug.LogError("Mono font not found in Resources!");
-
-    leaderboardText.fontSize = Screen.height * 0.022f; // scales to screen — ~51px on 2340
+    leaderboardText.fontSize = 48f;
     leaderboardText.color = Color.white;
     leaderboardText.alignment = TextAlignmentOptions.TopLeft;
-
     leaderboardText.textWrappingMode = TextWrappingModes.NoWrap;
     leaderboardText.overflowMode = TextOverflowModes.Overflow;
 
-    float panelH   = Screen.height * 0.60f;
-    float fontSize = Screen.height * 0.022f;
-    float lineH    = fontSize * 1.32f; // TMP default line spacing ~1.32x font size
+    RectTransform textRT = leaderboardText.GetComponent<RectTransform>();
+    textRT.anchorMin = Vector2.zero; textRT.anchorMax = Vector2.one;
+    textRT.offsetMin = new Vector2(72f, botInset);
+    textRT.offsetMax = new Vector2(-30f, -topInset);
 
-    RectTransform textRect = leaderboardText.GetComponent<RectTransform>();
-    textRect.anchorMin = new Vector2(0,0);
-    textRect.anchorMax = new Vector2(1,1);
-    // Text top must be below tab bottom.
-    // titleH = Screen.height*0.055, tabH = Screen.height*0.052
-    // titleBottom from panel top = 12 + titleH
-    // tabBottom from panel top   = 12 + titleH + tabH + 8 + tabH = 12 + titleH + 2*tabH + 8
-    // text starts 10px below tab bottom → offsetMax.y = -(12 + titleH + 2*tabH + 8 + 10)
-    float _titleH = Screen.height * 0.055f;
-    float _tabH   = Screen.height * 0.052f;
-    float _topInset = 12f + _titleH + _tabH + 8f + _tabH * 0.5f + 10f;
-    // offsetMin.y = 100: bottom padding above restart button
-    textRect.offsetMin = new Vector2(70, 100);
-    textRect.offsetMax = new Vector2(-70, -_topInset);
+    // ── Medal images (top 3 rows) ─────────────────────────────────────────────
+    float lineH   = 48f * 1.32f;  // font size × line spacing
+    // Panel height in canvas units
+    float panelH  = ch * (1f - 0.06f * 2f);  // ch minus top+bottom insets
+    float textAreaTop = panelH * 0.5f - topInset;
+    float firstRowY   = textAreaTop - lineH * 0.5f;
+    float panelW      = cw * (1f - 0.06f * 2f);
+    float textLeft    = -panelW * 0.5f + 72f;
+    float medalSize   = lineH * 0.85f;
+    float medalX      = textLeft + medalSize * 0.5f;
 
-    // Top of text area in panel local coords (panel centre = 0)
-    float textAreaTop = panelH * 0.5f - _topInset;
-    // First row centre = textAreaTop minus half a line
-    float firstRowY = textAreaTop - lineH * 0.5f;
-
-    // =====================================================
-    // MEDAL IMAGES for top 3 rows — aligned to text rows
-    // =====================================================
     string[] medalNames = { "Medal_1", "Medal_2", "Medal_3" };
-    float medalSize = lineH * 0.85f;
-    // Medal X: panel left edge + 70px text margin + half medal width
-    // This puts medal centre aligned with the rank column (pos=0)
-    float panelW    = Screen.width * 0.88f;
-    float textLeft  = -panelW * 0.5f + 70f; // left edge of text area
-    float medalX    = textLeft + medalSize * 0.5f;
-
     for (int m = 0; m < 3; m++)
     {
-        Sprite medalSprite = Resources.Load<Sprite>(medalNames[m]);
-        if (medalSprite == null)
-        {
-            Debug.LogWarning($"Medal sprite not found: {medalNames[m]}");
-            continue;
-        }
+        Sprite medalSpr = Resources.Load<Sprite>(medalNames[m]);
+        if (medalSpr == null) { medalObjects[m] = null; continue; }
 
         GameObject medalGO = new GameObject($"Medal_{m + 1}");
         medalGO.transform.SetParent(leaderboardPanel.transform, false);
-
         Image medalImg = medalGO.AddComponent<Image>();
-        medalImg.sprite  = medalSprite;
-        medalImg.preserveAspect = true;
-
-        RectTransform medalRect = medalGO.GetComponent<RectTransform>();
-        medalRect.anchorMin        = new Vector2(0.5f, 0.5f);
-        medalRect.anchorMax        = new Vector2(0.5f, 0.5f);
-        medalRect.pivot            = new Vector2(0.5f, 0.5f);
-        medalRect.sizeDelta        = new Vector2(medalSize, medalSize);
-        medalRect.anchoredPosition = new Vector2(medalX, firstRowY - m * lineH);
-
-        medalObjects[m] = medalGO; // store reference
+        medalImg.sprite = medalSpr; medalImg.preserveAspect = true;
+        RectTransform mRT = medalGO.GetComponent<RectTransform>();
+        mRT.anchorMin = mRT.anchorMax = mRT.pivot = new Vector2(0.5f, 0.5f);
+        mRT.sizeDelta = new Vector2(medalSize, medalSize);
+        mRT.anchoredPosition = new Vector2(medalX, firstRowY - m * lineH);
+        medalObjects[m] = medalGO;
     }
 
+    // "Climb the ranks!" removed — illegible on illustrated background
+
+    // ── Row container for Players tab ───────────────────────────────────────
+    _playerRowContainer = new GameObject("PlayerRowContainer");
+    _playerRowContainer.transform.SetParent(leaderboardPanel.transform, false);
+    RectTransform rowContainerRT = _playerRowContainer.AddComponent<RectTransform>();
+    rowContainerRT.anchorMin = Vector2.zero; rowContainerRT.anchorMax = Vector2.one;
+    rowContainerRT.offsetMin = new Vector2(8f, botInset);
+    rowContainerRT.offsetMax = new Vector2(-8f, -topInset);
+    _playerRowContainer.SetActive(false);
+
     leaderboardPanel.SetActive(false);
+}
+
+// Helper — generates a solid rounded-rect Sprite at runtime (used by leaderboard border/card)
+Sprite MakeRoundedRectSprite(int w, int h, int r)
+{
+    r = Mathf.Min(r, Mathf.Min(w, h) / 2);
+    var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+    Color[] px = new Color[w * h];
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+        {
+            int cx = Mathf.Clamp(x, r, w - r - 1);
+            int cy = Mathf.Clamp(y, r, h - r - 1);
+            float dx = x - cx, dy = y - cy;
+            float dist = Mathf.Sqrt(dx * dx + dy * dy);
+            float a = Mathf.Clamp01(r - dist + 0.5f);
+            px[y * w + x] = new Color(1f, 1f, 1f, a);
+        }
+    tex.SetPixels(px);
+    tex.Apply();
+    return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f,
+                         0, SpriteMeshType.FullRect);
 }
 void CreateSoundButton(GameObject parent)
 {
@@ -1829,18 +1821,37 @@ void CreateRestartButton()
     else
         buttonGO.transform.SetParent(canvas.transform, false);
 
+    // Teal restart button
     Image buttonImage = buttonGO.AddComponent<Image>();
     Sprite restartSprite = Resources.Load<Sprite>("btn_restart");
-    if (restartSprite != null) { buttonImage.sprite = restartSprite; buttonImage.preserveAspect = true; }
-    else buttonImage.color = new Color(0.10f, 0.75f, 0.20f);
+    if (restartSprite != null)
+    {
+        // Sprite already has "Restart" text baked in — just tint it teal
+        buttonImage.sprite = restartSprite;
+        buttonImage.color  = new Color(0.25f, 0.95f, 0.88f, 1f);
+    }
+    else
+    {
+        // No sprite — draw solid teal rect with TMP label
+        buttonImage.color = new Color(0.05f, 0.72f, 0.78f, 1f);
+        GameObject lblGO = new GameObject("RestartLabel");
+        lblGO.transform.SetParent(buttonGO.transform, false);
+        TextMeshProUGUI lbl = lblGO.AddComponent<TextMeshProUGUI>();
+        lbl.text = "Restart"; lbl.fontSize = 44f;
+        lbl.fontStyle = FontStyles.Bold; lbl.alignment = TextAlignmentOptions.Center;
+        lbl.color = Color.white;
+        RectTransform lblRT = lbl.GetComponent<RectTransform>();
+        lblRT.anchorMin = Vector2.zero; lblRT.anchorMax = Vector2.one;
+        lblRT.offsetMin = lblRT.offsetMax = Vector2.zero;
+    }
 
+    // Fixed canvas units — 460×90 button, 20px above bottom of leaderboard panel
     RectTransform rect = buttonGO.GetComponent<RectTransform>();
-    // Anchor to bottom-centre of the leaderboard panel
     rect.anchorMin = new Vector2(0.5f, 0f);
     rect.anchorMax = new Vector2(0.5f, 0f);
-    rect.pivot     = new Vector2(0.5f, 0f);
-    rect.sizeDelta        = new Vector2(340f, 90f);
-    rect.anchoredPosition = new Vector2(0f, 18f);
+    rect.pivot     = new Vector2(0.5f, 0.5f);
+    rect.sizeDelta        = new Vector2(520f, 130f);
+    rect.anchoredPosition = new Vector2(0f, 70f);
 
     Button restartButton = buttonGO.AddComponent<Button>();
     restartButton.onClick.AddListener(() =>
@@ -1913,6 +1924,13 @@ public void RefreshCoinDisplay()
         coinDisplayText.text = SkinManager.GetCoins().ToString();
 }
 
+// Called when a gold coin is collected — count is number of gold coins this run
+public void ShowRunCoins(int goldCoinsThisRun)
+{
+    if (coinDisplayText != null)
+        coinDisplayText.text = (_runStartCoins + goldCoinsThisRun).ToString();
+}
+
 public void TriggerRestartWithAd()
 {
     Time.timeScale = 1f;
@@ -1949,57 +1967,65 @@ IEnumerator RestartDelay(GameBootstrap bootstrap)
         bootstrap.StartGame();
     }
 }
-IEnumerator ShowLeaderboardNextFrame(string text, int scoreCount = 10)
+IEnumerator ShowLeaderboardNextFrame(int scoreCount)
 {
+    Debug.Log($"[Leaderboard] ShowLeaderboardNextFrame START — panel={leaderboardPanel?.name ?? "NULL"}, text={leaderboardText != null}, restartBtn={restartButtonObj?.name ?? "NULL"}");
     yield return null;
 
-    leaderboardText.text = text;
-
-    // Show/hide medals based on actual number of scores
-    for (int m = 0; m < 3; m++)
-    {
-        if (medalObjects[m] != null)
-            medalObjects[m].SetActive(m < scoreCount);
-    }
-
-    if (leaderboardPanel != null)
-    {
-        leaderboardPanel.SetActive(true);
-        leaderboardPanel.transform.SetAsLastSibling();
-    }
-
-    if (scoreTextUI != null) scoreTextUI.gameObject.SetActive(false);
-
-    // Hide skins button during leaderboard
-    if (skinsButtonObj != null) skinsButtonObj.SetActive(false);
-
+    // ── Hide GameBootstrap UI first so full-screen overlay never covers leaderboard ──
     GameBootstrap bootstrap = FindObjectOfType<GameBootstrap>();
     if (bootstrap != null)
     {
         if (bootstrap.gameOverPanel != null)
         {
             bootstrap.gameOverPanel.SetActive(false);
-            CanvasGroup cg = bootstrap.gameOverPanel.GetComponent<CanvasGroup>();
-            if (cg != null) cg.blocksRaycasts = false;
+            Debug.Log("[Leaderboard] gameOverPanel hidden");
         }
-        if (bootstrap.scoreText != null) bootstrap.scoreText.gameObject.SetActive(false);
+        if (bootstrap.scoreText  != null) bootstrap.scoreText.gameObject.SetActive(false);
         bootstrap.HideGameOverUI();
         if (bootstrap.restartButton != null) bootstrap.restartButton.SetActive(false);
         if (bootstrap.reviveButton  != null) bootstrap.reviveButton.SetActive(false);
-
-        // Hide player fish during leaderboard
         if (bootstrap.player != null) bootstrap.player.SetActive(false);
 
-        // Hide pipes during leaderboard
         foreach (var moving in UnityEngine.Object.FindObjectsOfType<Moving>())
             moving.gameObject.SetActive(false);
     }
+    else Debug.LogWarning("[Leaderboard] GameBootstrap NOT found — gameOverPanel may still be visible");
+
+    _showingCountries = false; // always show players view
+
+    // ── Populate leaderboard content ─────────────────────────────────────────
+    // Hide old floating medals — rows embed medals inline
+    for (int m = 0; m < 3; m++)
+        if (medalObjects[m] != null) medalObjects[m].SetActive(false);
+
+    // Build row-based player list
+    BuildPlayerRows(_lastScores, playerUsername);
+
+    if (scoreTextUI != null) scoreTextUI.gameObject.SetActive(false);
+    if (skinsButtonObj != null) skinsButtonObj.SetActive(false);
+
+    // ── Show leaderboard panel on top ────────────────────────────────────────
+    if (leaderboardPanel != null)
+    {
+        leaderboardPanel.SetActive(true);
+        leaderboardPanel.transform.SetAsLastSibling();
+        var lbRT = leaderboardPanel.GetComponent<RectTransform>();
+        Debug.Log($"[Leaderboard] panel active — sibling={leaderboardPanel.transform.GetSiblingIndex()} size={lbRT?.sizeDelta} pos={lbRT?.anchoredPosition} children={leaderboardPanel.transform.childCount}");
+    }
+    else
+        Debug.LogError("[Leaderboard] leaderboardPanel is NULL — nothing will show!");
 
     if (restartButtonObj != null)
     {
         restartButtonObj.SetActive(true);
         restartButtonObj.transform.SetAsLastSibling();
+        Debug.Log("[Leaderboard] restartButtonObj shown");
     }
+    else
+        Debug.LogError("[Leaderboard] restartButtonObj is NULL — restart button missing!");
+
+    Debug.Log($"[Leaderboard] ShowLeaderboardNextFrame DONE");
 }
 
 // void HandleReviveResult()
@@ -2088,7 +2114,36 @@ void ContinueRestart()
 // Android-safe sprite helpers (GetBuiltinResource fails on device)
 Sprite GetRoundedSprite()
 {
-    return null; // flat color on device — no crash
+    int w = 128, h = 64, r = 32;
+    var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+    tex.filterMode = FilterMode.Bilinear;
+    var pixels = new Color32[w * h];
+    for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+    {
+        // signed distance to rounded rect
+        float cx = Mathf.Abs(x - w * 0.5f) - (w * 0.5f - r);
+        float cy = Mathf.Abs(y - h * 0.5f) - (h * 0.5f - r);
+        float dist = Mathf.Sqrt(Mathf.Max(cx, 0) * Mathf.Max(cx, 0) + Mathf.Max(cy, 0) * Mathf.Max(cy, 0)) - r;
+        byte a = dist <= 0 ? (byte)255 : (byte)0;
+        pixels[y * w + x] = new Color32(255, 255, 255, a);
+    }
+    tex.SetPixels32(pixels);
+    tex.Apply();
+    // 12px border on all sides as 9-slice margin
+    return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f,
+                         0, SpriteMeshType.FullRect, new Vector4(r, r, r, r));
+}
+
+// Extracts the player-facing name from stored username format: CC_Name_guid → "Name"
+static string GetDisplayName(string stored)
+{
+    if (string.IsNullOrEmpty(stored)) return "Player";
+    var parts = stored.Split('_');
+    // Format: CC_PlayerName_shortGuid — country code is 2 chars, guid is last segment
+    if (parts.Length >= 3 && parts[0].Length == 2)
+        return string.Join("_", parts, 1, parts.Length - 2);
+    return stored.Length > 14 ? stored.Substring(0, 14) : stored;
 }
 Sprite GetCircleSprite()
 {
@@ -2251,5 +2306,204 @@ void ShowLazyUsernamePrompt(int score)
 
     overlay.transform.SetAsLastSibling();
 }
+
+// ── Row-based player leaderboard ─────────────────────────────────────────────
+
+static readonly Color[] AVATAR_COLORS = {
+    new Color(0.27f, 0.52f, 0.94f, 1f),
+    new Color(0.92f, 0.35f, 0.35f, 1f),
+    new Color(0.20f, 0.72f, 0.40f, 1f),
+    new Color(0.85f, 0.55f, 0.10f, 1f),
+    new Color(0.65f, 0.25f, 0.85f, 1f),
+    new Color(0.15f, 0.68f, 0.80f, 1f),
+    new Color(0.88f, 0.22f, 0.55f, 1f),
+    new Color(0.45f, 0.58f, 0.22f, 1f),
+};
+
+void ClearPlayerRows()
+{
+    foreach (var row in _playerRows)
+        if (row != null) Destroy(row);
+    _playerRows.Clear();
+}
+
+string GetInitials(string storedUsername)
+{
+    string display = GetDisplayName(storedUsername);
+    if (string.IsNullOrEmpty(display)) return "?";
+    string upper = display.ToUpper();
+    return upper.Length >= 2 ? upper.Substring(0, 2) : upper.Substring(0, 1);
+}
+
+Sprite MakeCircleSprite(int size)
+{
+    if (_circleSprite != null) return _circleSprite;
+    var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+    tex.filterMode = FilterMode.Bilinear;
+    Color[] px = new Color[size * size];
+    float r = size * 0.5f;
+    for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = x - r + 0.5f, dy = y - r + 0.5f;
+            float dist = Mathf.Sqrt(dx * dx + dy * dy);
+            float a = Mathf.Clamp01(r - dist + 0.5f);
+            px[y * size + x] = new Color(1f, 1f, 1f, a);
+        }
+    tex.SetPixels(px); tex.Apply();
+    _circleSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f,
+                                  0, SpriteMeshType.FullRect);
+    return _circleSprite;
+}
+
+void BuildPlayerRows(List<(string username, int score)> scores, string currentPlayer)
+{
+    if (_playerRowContainer == null) return;
+    ClearPlayerRows();
+    if (leaderboardText != null) leaderboardText.gameObject.SetActive(false);
+    _playerRowContainer.SetActive(true);
+
+    string displayCurrent = GetDisplayName(currentPlayer);
+    Sprite circleSpr = MakeCircleSprite(128);
+    Sprite[] medals  = {
+        Resources.Load<Sprite>("Medal_1"), Resources.Load<Sprite>("Medal_2"),
+        Resources.Load<Sprite>("Medal_3"), Resources.Load<Sprite>("Medal_4")
+    };
+
+    if (scores.Count == 0)
+    {
+        var eg = new GameObject("Empty"); eg.transform.SetParent(_playerRowContainer.transform,false);
+        var et = eg.AddComponent<TextMeshProUGUI>();
+        et.text = "No scores yet.\nBe the first!"; et.fontSize = 42f; et.fontStyle = FontStyles.Bold;
+        et.alignment = TextAlignmentOptions.Center; et.color = new Color(0.55f,0.80f,1f,0.85f);
+        var er = et.GetComponent<RectTransform>();
+        er.anchorMin=new Vector2(0f,0.3f); er.anchorMax=new Vector2(1f,0.7f);
+        er.offsetMin=er.offsetMax=Vector2.zero;
+        return;
+    }
+
+    // ── Dynamic row height — FILLS all available space ────────────────────
+    // Available canvas height: 1920 - topInset(340) - botInset(150) = 1430
+    // Header = 56px. Remaining for rows = 1374px.
+    float hdrH    = 56f;
+    float rowAreaH = 1374f;
+    float rowGap   = 6f;
+    float rowH     = (rowAreaH - (scores.Count - 1) * rowGap) / scores.Count;
+    rowH = Mathf.Clamp(rowH, 90f, 200f); // never tiny, never absurd
+
+    // ── Column header ─────────────────────────────────────────────────────
+    {
+        var hg = new GameObject("Header"); hg.transform.SetParent(_playerRowContainer.transform,false);
+        hg.AddComponent<Image>().color = new Color(0.55f,0.78f,0.90f,0.90f);
+        var hrt = hg.GetComponent<RectTransform>();
+        hrt.anchorMin=new Vector2(0f,1f); hrt.anchorMax=new Vector2(1f,1f);
+        hrt.pivot=new Vector2(0.5f,1f); hrt.sizeDelta=new Vector2(0f,hdrH);
+        hrt.anchoredPosition=Vector2.zero;
+
+        void HC(string t, float x0, float x1, TextAlignmentOptions a){
+            var g=new GameObject(t); g.transform.SetParent(hg.transform,false);
+            var tm=g.AddComponent<TextMeshProUGUI>();
+            tm.text=t; tm.fontSize=30f; tm.fontStyle=FontStyles.Bold;
+            tm.color=new Color(0.08f,0.12f,0.22f,1f); tm.alignment=a;
+            var r=tm.GetComponent<RectTransform>();
+            r.anchorMin=new Vector2(x0,0f); r.anchorMax=new Vector2(x1,1f);
+            r.offsetMin=new Vector2(6f,0f); r.offsetMax=new Vector2(-6f,0f);
+        }
+        HC("RANK",  0.00f, 0.18f, TextAlignmentOptions.Center);
+        HC("PLAYER",0.18f, 0.68f, TextAlignmentOptions.MidlineLeft);
+        HC("SCORE", 0.68f, 1.00f, TextAlignmentOptions.MidlineRight);
+    }
+
+    for (int i = 0; i < scores.Count; i++)
+    {
+        int rank = i + 1;
+        var (uname, score) = scores[i];
+        string dname = GetDisplayName(uname);
+        bool isMe = string.Equals(dname, displayCurrent, System.StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(uname, currentPlayer, System.StringComparison.OrdinalIgnoreCase);
+
+        // Row
+        var row = new GameObject("Row_"+rank);
+        row.transform.SetParent(_playerRowContainer.transform,false);
+        _playerRows.Add(row);
+        var rrt = row.AddComponent<RectTransform>();
+        rrt.anchorMin=new Vector2(0f,1f); rrt.anchorMax=new Vector2(1f,1f);
+        rrt.pivot=new Vector2(0.5f,1f);
+        rrt.sizeDelta=new Vector2(0f,rowH);
+        rrt.anchoredPosition=new Vector2(0f,-(hdrH+6f+i*(rowH+rowGap)));
+
+        // Background
+        var rbg=row.AddComponent<Image>();
+        if      (isMe)   rbg.color=new Color(0.55f,0.42f,0.00f,0.82f);
+        else if (rank==1)rbg.color=new Color(0.45f,0.33f,0.00f,0.78f);
+        else if (rank==2)rbg.color=new Color(0.25f,0.27f,0.33f,0.78f);
+        else if (rank==3)rbg.color=new Color(0.33f,0.17f,0.03f,0.78f);
+        else             rbg.color=i%2==0?new Color(0.04f,0.08f,0.18f,0.80f):new Color(0.07f,0.12f,0.24f,0.80f);
+
+        // Left accent strip
+        var sg=new GameObject("S"); sg.transform.SetParent(row.transform,false);
+        sg.AddComponent<Image>().color=(rank<=4||isMe)?new Color(1f,0.84f,0f,1f):new Color(0.10f,0.65f,0.80f,0.55f);
+        var srt=sg.GetComponent<RectTransform>();
+        srt.anchorMin=Vector2.zero; srt.anchorMax=new Vector2(0f,1f);
+        srt.offsetMin=Vector2.zero; srt.offsetMax=new Vector2(6f,0f);
+
+        // Medal (1-4) or rank number (5+)
+        float medalSize = rowH * 0.72f;
+        var mg=new GameObject("M"); mg.transform.SetParent(row.transform,false);
+        var mrt=mg.AddComponent<RectTransform>();
+        mrt.anchorMin=new Vector2(0f,0.5f); mrt.anchorMax=new Vector2(0f,0.5f);
+        mrt.pivot=new Vector2(0f,0.5f);
+        mrt.sizeDelta=new Vector2(medalSize,medalSize);
+        mrt.anchoredPosition=new Vector2(14f,0f);
+        if (rank<=4 && medals[rank-1]!=null)
+        { var mi=mg.AddComponent<Image>(); mi.sprite=medals[rank-1]; mi.preserveAspect=true; }
+        else
+        { var mt=mg.AddComponent<TextMeshProUGUI>();
+          mt.text=rank.ToString(); mt.fontSize=40f; mt.fontStyle=FontStyles.Bold;
+          mt.alignment=TextAlignmentOptions.Center;
+          mt.color=isMe?new Color(1f,0.92f,0.2f):new Color(0.70f,0.85f,1f); }
+
+        // Avatar circle
+        float avSize = rowH * 0.68f;
+        var ag=new GameObject("A"); ag.transform.SetParent(row.transform,false);
+        var ai=ag.AddComponent<Image>(); ai.sprite=circleSpr;
+        ai.color=AVATAR_COLORS[Mathf.Abs(uname.GetHashCode())%AVATAR_COLORS.Length];
+        var art=ag.GetComponent<RectTransform>();
+        art.anchorMin=new Vector2(0f,0.5f); art.anchorMax=new Vector2(0f,0.5f);
+        art.pivot=new Vector2(0f,0.5f); art.sizeDelta=new Vector2(avSize,avSize);
+        art.anchoredPosition=new Vector2(medalSize+20f,0f);
+        var ig2=new GameObject("I"); ig2.transform.SetParent(ag.transform,false);
+        var it=ig2.AddComponent<TextMeshProUGUI>();
+        it.text=GetInitials(uname); it.fontSize=avSize*0.38f;
+        it.fontStyle=FontStyles.Bold; it.alignment=TextAlignmentOptions.Center; it.color=Color.white;
+        var ir=it.GetComponent<RectTransform>();
+        ir.anchorMin=Vector2.zero; ir.anchorMax=Vector2.one; ir.offsetMin=ir.offsetMax=Vector2.zero;
+
+        // Name
+        float nameFontSize = Mathf.Clamp(rowH * 0.38f, 32f, 46f);
+        var ng=new GameObject("N"); ng.transform.SetParent(row.transform,false);
+        var nt=ng.AddComponent<TextMeshProUGUI>();
+        string trunc=dname.Length>14?dname.Substring(0,14):dname;
+        nt.text=trunc; nt.fontSize=nameFontSize; nt.fontStyle=FontStyles.Bold;
+        nt.alignment=TextAlignmentOptions.MidlineLeft;
+        nt.color=isMe?new Color(1f,0.92f,0.2f):Color.white;
+        nt.overflowMode=TextOverflowModes.Ellipsis; nt.textWrappingMode=TextWrappingModes.NoWrap;
+        var nrt=nt.GetComponent<RectTransform>();
+        nrt.anchorMin=new Vector2(0.18f,0f); nrt.anchorMax=new Vector2(0.68f,1f);
+        nrt.offsetMin=new Vector2(avSize+6f,4f); nrt.offsetMax=new Vector2(0f,-4f);
+
+        // Score
+        float scoreFontSize = Mathf.Clamp(rowH * 0.40f, 34f, 48f);
+        var sco=new GameObject("SC"); sco.transform.SetParent(row.transform,false);
+        var st=sco.AddComponent<TextMeshProUGUI>();
+        st.text="+"+score; st.fontSize=scoreFontSize; st.fontStyle=FontStyles.Bold;
+        st.alignment=TextAlignmentOptions.MidlineRight;
+        st.color=isMe?new Color(1f,0.92f,0.2f):Color.white;
+        var scort=st.GetComponent<RectTransform>();
+        scort.anchorMin=new Vector2(0.68f,0f); scort.anchorMax=new Vector2(1f,1f);
+        scort.offsetMin=new Vector2(0f,4f); scort.offsetMax=new Vector2(-20f,-4f);
+    }
+}
+
 
 }

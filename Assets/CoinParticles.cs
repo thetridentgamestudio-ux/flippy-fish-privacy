@@ -13,7 +13,8 @@ public class CoinParticles : MonoBehaviour
         particleObj.transform.position = position;
         
         ParticleSystem ps = particleObj.AddComponent<ParticleSystem>();
-        
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
         // Configure main module
         ParticleSystem.MainModule main = ps.main;
         main.duration = 0.5f;
@@ -39,7 +40,8 @@ public class CoinParticles : MonoBehaviour
         if (renderer != null)
         {
             renderer.renderMode = ParticleSystemRenderMode.Billboard;
-            renderer.material = new Material(Shader.Find("Particles/Standard Unlit"));
+            var shader = Shader.Find("Particles/Standard Unlit") ?? Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Sprites/Default");
+            if (shader != null) renderer.material = new Material(shader);
         }
 
         // Auto-destroy after effect

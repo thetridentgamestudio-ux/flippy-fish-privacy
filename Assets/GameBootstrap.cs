@@ -40,6 +40,12 @@ public GameObject restartButton;
     Image gameLogo;
     TextMeshProUGUI bestScoreText;
     GameObject bestScoreCard;
+    GameObject bestScoreGlow;
+    GameObject bestScoreLabel;   // "BEST" text GameObject (separate from card)
+
+    // Cached expensive lookups — populated in Start, reused every pipe pass
+    FirebaseGameManager  _cachedFbm;
+    FloatingScoreManager _cachedFsm;
     private TextMeshProUGUI restartText;
     private TextMeshProUGUI _taglineText;
     private GameObject _profileBadge;
@@ -47,6 +53,7 @@ public GameObject restartButton;
    // private TextMeshProUGUI pauseText;
     public Sprite playerSadSprite;
     private TextMeshProUGUI highScoreText;
+    private GameObject _scoreBoxRoot;
     [Header("Sprites")]
     public Sprite playerSprite;
     //private bool isPaused = false;
@@ -54,11 +61,12 @@ public GameObject restartButton;
     
      public int Score = 0;
      public int CoinsThisRun = 0;  // coins collected in current run, reset on restart
+     int _coinsAtRunStart = 0;     // wallet snapshot taken when run begins
      Vector3 originalPlayerScale;
      private Canvas mainCanvas;
-    public float minGap = 3.0f;       // smallest possible gap
-public float maxGap = 3.9f;       // largest possible gap
-public float easyStartGap = 2.7f; // guaranteed easier start
+    public float minGap = 3.8f;       // smallest possible gap
+public float maxGap = 4.8f;       // largest possible gap
+public float easyStartGap = 4.0f; // guaranteed easier start
 //public float gapDecreaseRate = 0.005f; // how much gap shrinks per pipe (difficulty)
     private BubbleSpawner spawner;
     private float tapBounceTimer = 0f;
@@ -107,11 +115,17 @@ private float maxGravity = -14f;          // max gravity at highest difficulty
  public TMP_FontAsset tmpFont;
 
     // ===== DAILY QUESTS STATE MANAGEMENT =====
-    private GameObject dailyQuestPanel;      // Store panel reference
-    private GameObject darkOverlay;          // Store overlay reference
-    private bool isQuestPanelOpen = false;   // Track visibility state
-    private GameObject questButtonGO;        // Store button reference
-    private Transform  _questContentRoot;    // Parent for quest rows — cleared and rebuilt on open
+    private GameObject      dailyQuestPanel;
+    private GameObject      darkOverlay;
+    private bool            isQuestPanelOpen = false;
+    private GameObject      questButtonGO;
+    private Transform       _questContentRoot;
+    private TextMeshProUGUI _questTimerText;
+    private Image           _questOverallFill;
+    private TextMeshProUGUI _questOverallLabel;
+    private Coroutine       _questTimerCoroutine;
+    // Entire Firebase canvas hidden while quest panel is open
+    private GameObject      _hiddenFirebaseCanvas;
     private bool _isMultiplayerRound = false; // true while in a multiplayer game — changes game-over UI
     private GameObject _mpReplayButton;      // Replay/Reinvite button shown after MP game ends
 
@@ -141,7 +155,6 @@ StartCoroutine(GetCountryCode());
     // 1. Ensure UI exists before gameplay
     // -----------------------------
     CreateAllUI();       // Score, High Score, Pause button
-    
     CreateUIText();  
     CreateNewRunText();
     CreateTapHint();     // Creates tap hint only
@@ -165,12 +178,25 @@ CreateUsernameText();
     CreateBackground();
     CreateBounds();
     CreateGameOverButtons();
-    CreateDailyQuestsPanelUI();   // Create panel ONCE, hidden
-    CreateDailyQuestsButton();    // Create button, add listeners
+    DailyQuestManager.Create();       // Init quests early so panel has data immediately
+    CreateDailyQuestsPanelUI();       // Create panel ONCE, hidden
+    CreateDailyQuestsButton();        // Create button, add listeners
 
     // Ensure PowerUpManager exists — MonoBehaviour singleton not placed in scene
     if (FindObjectOfType<PowerUpManager>() == null)
         new GameObject("PowerUpManager").AddComponent<PowerUpManager>();
+
+    // Ensure AdManager exists — must be created before any ad calls
+    if (FindObjectOfType<AdManager>() == null)
+        new GameObject("AdManager").AddComponent<AdManager>();
+
+    // Phase 1: speed spike manager
+    if (FindObjectOfType<SpeedSpikeManager>() == null)
+        new GameObject("SpeedSpikeManager").AddComponent<SpeedSpikeManager>();
+
+    // Phase 2: darkness mode
+    if (FindObjectOfType<DarknessMode>() == null)
+        new GameObject("DarknessMode").AddComponent<DarknessMode>();
 
     // -----------------------------
     // 5. Load high score
@@ -206,7 +232,11 @@ public float obstacleVerticalScale = 0.7f; // 1 = original height, <1 = shorter,
     void Start()
     {
         mainCanvas = Object.FindFirstObjectByType<Canvas>();
-        Camera.main.orthographicSize = 12.5f; // slightly zoomed out to show larger player in context
+        Camera.main.orthographicSize = 12.5f;
+        // Move camera up — makes bottom pillar appear to rise from deeper seabed
+        var camT = Camera.main.transform;
+        camT.position = new Vector3(camT.position.x, camT.position.y + 0.8f, camT.position.z);
+        camT.rotation = Quaternion.identity; // keep orthographic frustum straight
     if(mainCanvas == null)
     {
         GameObject canvasGO = new GameObject("Canvas");
@@ -258,12 +288,17 @@ Time.timeScale = 0f;
 
         // Show first-launch onboarding once — after all UI is created
         OnboardingOverlay.ShowIfNeeded(mainCanvas);
+
+        // Pre-warm expensive lookups so AddScore never stalls on first pipe pass
+        _cachedFbm = FindObjectOfType<FirebaseGameManager>();
+        _cachedFsm = Object.FindFirstObjectByType<FloatingScoreManager>();
     }
 
  void Update()
 {
 UpdateGroundScroll();
 UpdateTapToStart();
+CheckCoinCollection();
 
     // Background scrolling handled by ParallaxBackgroundManager
 
@@ -280,10 +315,29 @@ UpdateTapToStart();
 }
 
 
+    private const float COIN_COLLECT_RADIUS = 2.5f;
+
+    private void CheckCoinCollection()
+    {
+        if (player == null) return;
+
+        Vector2 playerPos = player.transform.position;
+
+        for (int i = PipeCoin.Active.Count - 1; i >= 0; i--)
+        {
+            var coin = PipeCoin.Active[i];
+            if (coin == null) { PipeCoin.Active.RemoveAt(i); continue; }
+            if (coin.Collected) continue;
+
+            if (Vector2.Distance(playerPos, coin.transform.position) < COIN_COLLECT_RADIUS)
+                coin.Collect();
+        }
+    }
+
     private void UpdateScoreText()
     {
         if (scoreText != null)
-            scoreText.text = "Score: " + Score;
+            scoreText.text = Score.ToString();
     }
   
 // GameBootstrap.cs
@@ -418,9 +472,10 @@ void CreateBounds()
 
     // CRITICAL: sync all existing pipes to current speed so they don't get
     // caught up by faster new pipes spawning behind them (causes overlap)
+    float effectiveSpeed = _currentSpeed * (SpeedSpikeManager.Instance != null && SpeedSpikeManager.Instance.IsSpiking ? SpeedSpikeManager.SPIKE_MULT : 1f);
     foreach (var m in FindObjectsByType<Moving>(FindObjectsSortMode.None))
     {
-        if (m != null) m.speed = _currentSpeed;
+        if (m != null) m.speed = effectiveSpeed;
     }
 
     SpawnPipe(nextPipeX);
@@ -609,7 +664,9 @@ void SpawnPipe(float spawnX)
                 topPipeY,
                 0
             );
-        // Do NOT override Y scale — CreatePipe already set the correct scale
+        // Top pipe further back in layer order
+        var tpSR = topPipe.GetComponent<SpriteRenderer>();
+        if (tpSR != null) tpSR.sortingOrder = 1;
     }
 
     // =====================================================
@@ -645,8 +702,11 @@ void SpawnPipe(float spawnX)
             new Vector3(
                 spawnX,
                 bottomPipeY,
-                0
+                1.5f  // slightly deeper — rises from seabed visually
             );
+        // Bottom pipe in front of top pipe, behind seabed (20) and player (10)
+        var bpSR = bottomPipe.GetComponent<SpriteRenderer>();
+        if (bpSR != null) bpSR.sortingOrder = 5;
     }
 
     // =====================================================
@@ -668,6 +728,15 @@ void SpawnPipe(float spawnX)
     moving.speed = isReliefPipe
         ? _currentSpeed * 0.9f
         : _currentSpeed;
+
+    // Phase 1: vertical oscillation — non-relief pipes only, score >= 15
+    if (!isReliefPipe && Score >= 15)
+    {
+        var osc = pipeGroup.AddComponent<PipeOscillator>();
+        if (Score >= 40)       { osc.amplitude = 4.0f; osc.frequency = 0.65f; }
+        else if (Score >= 25)  { osc.amplitude = 3.0f; osc.frequency = 0.55f; }
+        else                   { osc.amplitude = 2.0f; osc.frequency = 0.45f; }
+    }
 
     // =====================================================
     // PARENTING
@@ -718,6 +787,22 @@ void SpawnPipe(float spawnX)
     // POWER-UP SPAWN
     // =====================================================
     TrySpawnPowerUpNearPipe(spawnX, gapCenter);
+
+    // =====================================================
+    // PHASE 3: COIN IN GAP
+    // =====================================================
+    // 45% chance per pipe, never on relief pipes
+    if (!isReliefPipe && Random.value < 0.45f)
+    {
+        var coinGO = new GameObject("PipeCoin");
+        coinGO.tag = "Untagged";
+        float coinY = gapCenter + Random.Range(-currentGap * 0.28f, currentGap * 0.28f);
+        coinGO.transform.position = new Vector3(spawnX, coinY, 0f);
+        // Own Moving component — avoids parent-transform issues on mobile
+        var coinMove = coinGO.AddComponent<Moving>();
+        coinMove.speed = moving.speed;
+        coinGO.AddComponent<PipeCoin>();
+    }
 
     // =====================================================
     // DYNAMIC GRAVITY
@@ -776,7 +861,7 @@ GameObject CreatePipe(string name, Vector3 pos, Sprite sprite, bool flipY)
 // Tall enough to always cover from gap edge to screen edge (camera orthographicSize=9, full height=18)
 float targetHeight = 16f; // accommodate larger gaps
 // Fixed world width — keeps pipes a reasonable size on screen regardless of sprite aspect ratio
-float targetWidth = 3.5f;
+float targetWidth = 5.0f;
 
     Vector2 spriteSize = sr.sprite.bounds.size;
 
@@ -878,22 +963,16 @@ Sprite MakeRoundedRectSprite(int width = 512, int height = 160, int radius = 50)
     SkinManager.OnPipePassed(Score);
     CoinsThisRun++;
 
-    // Single best score check — save only, coins awarded in TriggerGameOver
+    // Single best score check — SetInt only (no Save — disk flush waits until TriggerGameOver)
     int best = PlayerPrefs.GetInt("BestScore", 0);
     if (Score > best)
-    {
         PlayerPrefs.SetInt("BestScore", Score);
-        PlayerPrefs.Save();
-    }
 
-    // Refresh coin display — single call, no duplicate FindObjectOfType
-    FirebaseGameManager fb = FindObjectOfType<FirebaseGameManager>();
-    if (fb != null) fb.RefreshCoinDisplay();
+    // Do NOT refresh coin display here — per-pipe coins are silent.
+    // Display only updates when player collects a visible gold coin (PipeCoin.Collect).
 
-    // ✅ Floating score effect (KEEP THIS)
-    FloatingScoreManager fsm = Object.FindFirstObjectByType<FloatingScoreManager>();
-    if (fsm != null)
-        fsm.AddScore(points);
+    // Floating score effect — cached ref
+    if (_cachedFsm != null) _cachedFsm.AddScore(points);
 
     // ✅ Single UI update source
     UpdateScoreText();
@@ -904,13 +983,42 @@ Sprite MakeRoundedRectSprite(int width = 512, int height = 160, int radius = 50)
 
     // Haptic tick on score
     HapticManager.Score();
+
+    // Phase 1: speed spike at score milestones
+    SpeedSpikeManager.Instance?.CheckMilestone(Score);
+
+    // Phase 2: darkness mode — on 20-30, off 30-50, on 50-70
+    if (Score == 20 || Score == 50) DarknessMode.Instance?.Activate();
+    if (Score == 30 || Score == 70) DarknessMode.Instance?.Deactivate();
 }
+
+// Coins collected from gold pickups this run (shown in HUD during gameplay)
+public int RunGoldCoins { get; private set; }
+
+// Called by PipeCoin when a gold coin is collected
+public void CollectGoldCoin()
+{
+    RunGoldCoins++;
+    SkinManager.AddCoins(1);
+    // Show startTotal + goldCoins so display goes up by exactly 1 per pickup
+    if (_cachedFbm != null) _cachedFbm.ShowRunCoins(_coinsAtRunStart + RunGoldCoins);
+}
+
 public void TriggerGameOver()
 {
+    // TODO: REMOVE BEFORE PRODUCTION — god mode for testing
+    if (true) return;
     if (IsGameOver) return;
 
     IsGameOver = true;
     CurrentState = GameState.GameOver;
+
+    // Phase 1: cancel any active speed spike
+    SpeedSpikeManager.Instance?.StopSpike();
+
+    // Phase 2: clear darkness overlay
+    DarknessMode.Instance?.Deactivate();
+
 
     // ── End-of-run rewards: XP + quests ──────────────────────────────
     // Ensure both managers exist (they self-create if missing from scene)
@@ -935,6 +1043,7 @@ public void TriggerGameOver()
     if (MultiplayerManager.Instance != null && MultiplayerManager.Instance.IsMultiplayerGame)
         MultiplayerManager.Instance.OnLocalPlayerDied(Score);
 
+    PlayerPrefs.Save(); // flush coins + best score deferred from every-pipe writes
     float sessionDuration = Time.realtimeSinceStartup - _sessionStartTime;
     AnalyticsEvents.LogGameOver(Score, SkinManager.GetCoins(), sessionDuration);
 
@@ -945,7 +1054,7 @@ public void TriggerGameOver()
     CancelInvoke(nameof(SpawnPipeRepeated));
 
     // Hide score text so it doesn't bleed through the game over panel
-    if (scoreText != null) scoreText.gameObject.SetActive(false);
+    if (_scoreBoxRoot != null) _scoreBoxRoot.SetActive(false);
 
     foreach (var moving in Object.FindObjectsOfType<Moving>())
         moving.enabled = false;
@@ -1001,11 +1110,19 @@ public void TriggerGameOver()
         if (hasRevived)
         {
             // Player already revived this run — skip game over panel, go straight to leaderboard
-            HideGameOverUI(); // hide ALL game over UI including restart/revive buttons
+            Debug.Log($"[TriggerGameOver] hasRevived=true — routing to leaderboard (score={Score})");
+            Time.timeScale = 1f;
+            HideGameOverUI();
+            if (gameOverPanel != null) gameOverPanel.SetActive(false);
             if (firebase != null) firebase.OnGameOver(Score);
-            firebase.ShowLeaderboardUI(Score);
+            if (firebase != null) firebase.ShowLeaderboardUI(Score);
             return;
         }
+
+        // Refresh "Best:" label inside card
+        TextMeshProUGUI bestCardLbl = FindTMPInChildren(gameOverPanel.transform, "BestLabel");
+        if (bestCardLbl != null)
+            bestCardLbl.text = "Best: " + PlayerPrefs.GetInt("BestScore", 0);
 
         gameOverPanel.SetActive(true);
         gameOverPanel.transform.SetAsLastSibling();
@@ -1032,46 +1149,21 @@ public void TriggerGameOver()
             // Show skins button on solo game over
             if (firebase != null) firebase.SetSkinsButtonVisible(true);
 
-            // ── Skin unlock hint — anchored BELOW restart button ──────────────
-            // Panel is 450px tall, centred at y=60. Restart button bottom edge ≈ y=-265-45=-310 from panel centre.
-            // Place hint at y=-330 so it sits just below restart with a small gap.
-            TextMeshProUGUI hint = gameOverPanel.transform.Find("NextUnlockHint")?.GetComponent<TextMeshProUGUI>();
-            if (hint == null)
+            // ── Skin unlock hint (lives inside Footer child) ──────────────────
+            TextMeshProUGUI hint = FindTMPInChildren(gameOverPanel.transform, "NextUnlockHint");
+            if (hint != null)
             {
-                GameObject hintGO = new GameObject("NextUnlockHint");
-                hintGO.transform.SetParent(gameOverPanel.transform, false);
-                hint = hintGO.AddComponent<TextMeshProUGUI>();
-                RectTransform rt = hintGO.GetComponent<RectTransform>();
-                rt.anchorMin        = new Vector2(0.05f, 0f);
-                rt.anchorMax        = new Vector2(0.95f, 0f);
-                rt.pivot            = new Vector2(0.5f, 1f);
-                rt.anchoredPosition = new Vector2(0f, -330f);
-                rt.sizeDelta        = new Vector2(0f, 38f);
+                hint.text  = BuildSkinHintText();
+                hint.font  = tmpFont;
             }
-            hint.text      = "Collect 500 more coins to unlock next skin!";
-            hint.alignment = TextAlignmentOptions.Center;
-            hint.fontSize  = 15;
-            hint.color     = new Color(1f, 0.85f, 0.2f);
 
-            // ── Streak teaser — below hint ────────────────────────────────────
-            TextMeshProUGUI streakTeaser = gameOverPanel
-                .transform.Find("StreakTeaser")?.GetComponent<TextMeshProUGUI>();
-            if (streakTeaser == null)
+            // ── Streak teaser ─────────────────────────────────────────────────
+            TextMeshProUGUI streakTeaser = FindTMPInChildren(gameOverPanel.transform, "StreakTeaser");
+            if (streakTeaser != null)
             {
-                GameObject teaserGO = new GameObject("StreakTeaser");
-                teaserGO.transform.SetParent(gameOverPanel.transform, false);
-                streakTeaser = teaserGO.AddComponent<TextMeshProUGUI>();
-                RectTransform trt = teaserGO.GetComponent<RectTransform>();
-                trt.anchorMin        = new Vector2(0.05f, 0f);
-                trt.anchorMax        = new Vector2(0.95f, 0f);
-                trt.pivot            = new Vector2(0.5f, 1f);
-                trt.anchoredPosition = new Vector2(0f, -372f);
-                trt.sizeDelta        = new Vector2(0f, 36f);
+                streakTeaser.text = DailyStreakManager.GetTomorrowTeaser();
+                streakTeaser.font = tmpFont;
             }
-            streakTeaser.text      = DailyStreakManager.GetTomorrowTeaser();
-            streakTeaser.alignment = TextAlignmentOptions.Center;
-            streakTeaser.fontSize  = 14;
-            streakTeaser.color     = new Color(0.6f, 0.9f, 1f);
         }
     }
     else
@@ -1160,7 +1252,7 @@ public void StartGame()
     ApplySelectedSkin();
 
     HideMenuUI();
-    if (scoreText != null) scoreText.gameObject.SetActive(true);
+    if (_scoreBoxRoot != null) _scoreBoxRoot.SetActive(true);
     IsGameOver = false;
     Time.timeScale = 1f; // resume game
  CancelInvoke(nameof(SpawnPipeRepeated));
@@ -1331,8 +1423,10 @@ if (restartButton != null) restartButton.SetActive(false);
     HideMenuUI();
     Score = 0;
     CoinsThisRun = 0;
+    RunGoldCoins = 0;
+    _coinsAtRunStart = SkinManager.GetCoins(); // snapshot wallet before run starts
     UpdateScoreText();
-    if (scoreText != null) scoreText.gameObject.SetActive(true);
+    if (_scoreBoxRoot != null) _scoreBoxRoot.SetActive(true);
     StartCoroutine(ShowNewRun());
     lastGap = 3.2f;
     lastGapCenter = 1.5f;
@@ -1441,6 +1535,62 @@ Sprite GetRandomBottomSprite()
 {
     GameObject spawnerGO = new GameObject("BubbleSpawner");
     spawner = spawnerGO.AddComponent<BubbleSpawner>();
+
+    // Launch always-on ambient background bubbles (full screen, oceanic feel)
+    StartCoroutine(AmbientBackgroundBubbles());
+}
+
+private IEnumerator AmbientBackgroundBubbles()
+{
+    Sprite[] bubSprites = new Sprite[] {
+        Resources.Load<Sprite>("BgObjects/Bubble_1"),
+        Resources.Load<Sprite>("BgObjects/Bubble_2"),
+        Resources.Load<Sprite>("BgObjects/Bubble_3")
+    };
+    // Filter out any that failed to load
+    var validSprites = System.Array.FindAll(bubSprites, s => s != null);
+    Debug.Log($"[BgBubbles] Loaded {validSprites.Length}/3 bubble sprites");
+    if (validSprites.Length == 0) { Debug.LogWarning("[BgBubbles] No bubble sprites loaded — check BgObjects/Bubble_1.png spriteMode in meta"); yield break; }
+
+    while (true)
+    {
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            float halfH = cam.orthographicSize;                 // e.g. 12.5
+            float halfW = halfH * cam.aspect;                  // full screen half-width
+
+            // Spawn just 1 bubble at a time — sparse, distant feel
+            float spawnX = Random.Range(-halfW, halfW);
+            float spawnY = -halfH - 0.5f;
+
+            var go = new GameObject("BgBubble");
+            go.transform.position = new Vector3(spawnX, spawnY, 0.5f);
+
+            var sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = validSprites[Random.Range(0, validSprites.Length)];
+            sr.sortingLayerName = "BackgroundDeepblue"; // same layer as background
+            sr.sortingOrder = 0; // just above background (-1), behind gameplay
+
+            // Small and faint — distant background only
+            float scale = Random.Range(0.35f, 0.75f);
+            go.transform.localScale = Vector3.one * scale;
+            sr.color = new Color(1f, 1f, 1f, Random.Range(0.30f, 0.55f));
+
+            var bm = go.AddComponent<BubbleMovement>();
+            bm.speedY        = Random.Range(0.4f, 1.0f);
+            bm.driftX        = Random.Range(-0.05f, 0.05f);
+            bm.enableWave    = true;
+            bm.waveAmplitude = Random.Range(0.02f, 0.06f);
+            bm.waveFrequency = Random.Range(0.6f, 1.4f);
+
+            float lifetime = (halfH * 2f + 1f) / Mathf.Max(bm.speedY, 0.1f);
+            bm.lifetime = lifetime;
+            Destroy(go, lifetime + 0.2f);
+        }
+
+        yield return new WaitForSeconds(Random.Range(1.2f, 2.5f));
+    }
 }
 // Call this to spawn a quick particle burst
 public ParticleSystem CreateParticleBurst(Vector3 position, Color color, int count = 15, float size = 0.2f, float lifetime = 0.5f)
@@ -1527,6 +1677,7 @@ public DifficultyTier GetTier()
 float tierLerpSpeed = 0.08f; // per-frame blend — smooth over ~1 second
 
 float _currentSpeed   = 4.0f;
+public float CurrentPipeSpeed => _currentSpeed;
 float _currentGravity = 1.0f;
 
 public float GetDifficultyMultiplier()
@@ -1610,22 +1761,67 @@ void CreateAllUI()
             es.AddComponent<StandaloneInputModule>();
         }
 
-        // ===== SCORE (Top Left) =====
-        scoreText = CreateTMPText(
-            "ScoreText",
-            46,
-            Color.white,
-            new Vector2(0, 1),
-            new Vector2(0, 1),
-            new Vector2(20, -40),
-            new Vector2(300, 80),
-            new Vector2(0, 1)
-        );
-        scoreText.fontStyle  = FontStyles.Bold;
-        scoreText.outlineColor = new Color(0f, 0f, 0f, 1f);
-        scoreText.outlineWidth = 0.25f;
+        // ===== SCORE BOX (Top Left) — ScoreBox.png background =====
+        // Destroy any stale instance left over from a previous Play session
+        var stale = GameObject.Find("ScoreBox");
+        if (stale != null) Destroy(stale);
+        var scoreBoxGO = new GameObject("ScoreBox");
+        scoreBoxGO.transform.SetParent(mainCanvas.transform, false);
+        var scoreBoxImg = scoreBoxGO.AddComponent<Image>();
+        var scoreBoxSpr = Resources.Load<Sprite>("ScoreBox");
+        var scoreBoxRT = scoreBoxGO.GetComponent<RectTransform>();
+        scoreBoxRT.anchorMin = scoreBoxRT.anchorMax = new Vector2(0f, 1f);
+        scoreBoxRT.pivot = new Vector2(0f, 1f);
+        scoreBoxRT.sizeDelta = new Vector2(300f, 220f);
+        scoreBoxRT.anchoredPosition = new Vector2(15f, -15f);
+        if (scoreBoxSpr != null)
+        {
+            scoreBoxImg.sprite = scoreBoxSpr;
+            scoreBoxImg.type = Image.Type.Simple;
+            scoreBoxImg.preserveAspect = false; // stretch to fill 300x220
+            scoreBoxImg.color = Color.white;
+        }
+        else scoreBoxImg.color = new Color(0.04f, 0.10f, 0.22f, 1f);
+        _scoreBoxRoot = scoreBoxGO;
 
-        scoreText.gameObject.SetActive(false); // hidden until game starts
+        // "SCORE" label — top 22% of box, white, bold, dark blue outline
+        var scoreLabelGO = new GameObject("ScoreLabel");
+        scoreLabelGO.transform.SetParent(scoreBoxGO.transform, false);
+        var scoreLbl = scoreLabelGO.AddComponent<TextMeshProUGUI>();
+        scoreLbl.text = "SCORE";
+        scoreLbl.fontStyle = FontStyles.Bold;
+        scoreLbl.enableAutoSizing = true; scoreLbl.fontSizeMin = 10f; scoreLbl.fontSizeMax = 32f;
+        scoreLbl.color = Color.white;
+        scoreLbl.alignment = TextAlignmentOptions.Center;
+        scoreLbl.outlineColor = new Color(0.04f, 0.08f, 0.30f, 1f);
+        scoreLbl.outlineWidth = 0.3f;
+        var scoreLblRT = scoreLabelGO.GetComponent<RectTransform>();
+        scoreLblRT.anchorMin = new Vector2(0f, 0.76f); scoreLblRT.anchorMax = new Vector2(1f, 0.97f);
+        scoreLblRT.offsetMin = scoreLblRT.offsetMax = Vector2.zero;
+
+        // Score number — occupies 45-50% of box, gold/amber, chunky 3D outline
+        var scoreTxtGO = new GameObject("ScoreText");
+        scoreTxtGO.transform.SetParent(scoreBoxGO.transform, false);
+        scoreText = scoreTxtGO.AddComponent<TextMeshProUGUI>();
+        scoreText.fontStyle = FontStyles.Bold;
+        scoreText.enableAutoSizing = true; scoreText.fontSizeMin = 20f; scoreText.fontSizeMax = 80f;
+        scoreText.color = new Color(1f, 0.78f, 0.11f, 1f);  // golden amber
+        scoreText.alignment = TextAlignmentOptions.Center;
+        // Dark blue outline for pop
+        scoreText.outlineColor = new Color(0.04f, 0.08f, 0.30f, 1f);
+        scoreText.outlineWidth = 0.38f;
+        // Orange-brown underlay for 3D extrusion effect
+        scoreText.fontMaterial = new Material(scoreText.fontMaterial);
+        scoreText.fontMaterial.EnableKeyword("UNDERLAY_ON");
+        scoreText.fontMaterial.SetColor("_UnderlayColor", new Color(0.55f, 0.22f, 0.02f, 0.85f));
+        scoreText.fontMaterial.SetFloat("_UnderlayOffsetX", 0.5f);
+        scoreText.fontMaterial.SetFloat("_UnderlayOffsetY", -0.6f);
+        scoreText.fontMaterial.SetFloat("_UnderlaySoftness", 0.1f);
+        var scoreTxtRT = scoreTxtGO.GetComponent<RectTransform>();
+        scoreTxtRT.anchorMin = new Vector2(0f, 0.08f); scoreTxtRT.anchorMax = new Vector2(1f, 0.74f);
+        scoreTxtRT.offsetMin = scoreTxtRT.offsetMax = Vector2.zero;
+
+        scoreBoxGO.SetActive(false); // hidden until game starts
 
         // ===== HIGH SCORE (Top Center) =====
         highScoreText = CreateTMPText(
@@ -1774,13 +1970,18 @@ void CreateAllUI()
     public void HideMenuUI()
     {
         if (gameLogo != null)      gameLogo.gameObject.SetActive(false);
-        if (bestScoreCard != null) bestScoreCard.SetActive(false);
+        if (bestScoreGlow  != null) bestScoreGlow.SetActive(false);
+        if (bestScoreLabel != null) bestScoreLabel.SetActive(false);
+        if (bestScoreCard  != null) bestScoreCard.SetActive(false);
         else if (bestScoreText != null) bestScoreText.gameObject.SetActive(false);
         if (_taglineText != null)  _taglineText.gameObject.SetActive(false);
         if (_profileBadge != null) _profileBadge.SetActive(false);
 
         var fgm = FindObjectOfType<FirebaseGameManager>();
-        if (fgm != null) fgm.HideStartMenuElements();
+        if (fgm != null)
+        {
+            fgm.HideStartMenuElements(); // snapshots wallet + sets display to real total
+        }
     }
 
     // Restore menu-layer elements when returning to the pre-game waiting state (solo).
@@ -1788,7 +1989,9 @@ void CreateAllUI()
     public void ShowMenuUI()
     {
         if (gameLogo != null)    gameLogo.gameObject.SetActive(true);
-        if (bestScoreCard != null) { RefreshBestScore(); bestScoreCard.SetActive(true); }
+        if (bestScoreGlow  != null) bestScoreGlow.SetActive(true);
+        if (bestScoreLabel != null) bestScoreLabel.SetActive(true);
+        if (bestScoreCard  != null) { RefreshBestScore(); bestScoreCard.SetActive(true); }
         else if (bestScoreText != null) { RefreshBestScore(); bestScoreText.gameObject.SetActive(true); }
         if (_taglineText != null)  _taglineText.gameObject.SetActive(true);
         if (_profileBadge != null) _profileBadge.SetActive(true);
@@ -2102,6 +2305,7 @@ void CreateBestScoreText()
 
     // ── Gold glow ─────────────────────────────────────────────────────
     GameObject glowGO = new GameObject("BestScoreGlow");
+    bestScoreGlow = glowGO;
     glowGO.transform.SetParent(mainCanvas.transform, false);
     Image glowImg = glowGO.AddComponent<Image>();
     Sprite glowSpr = Resources.Load<Sprite>("glow_gold");
@@ -2110,29 +2314,29 @@ void CreateBestScoreText()
     RectTransform glowRT = glowGO.GetComponent<RectTransform>();
     glowRT.anchorMin = new Vector2(0.5f, 0.5f); glowRT.anchorMax = new Vector2(0.5f, 0.5f);
     glowRT.pivot     = new Vector2(0.5f, 0.5f);
-    glowRT.sizeDelta        = new Vector2(480, 140);
-    glowRT.anchoredPosition = new Vector2(0, 255);
+    glowRT.sizeDelta        = new Vector2(580, 170);
+    glowRT.anchoredPosition = new Vector2(0, 165);
 
-    // ── Gold bar ──────────────────────────────────────────────────────
+    // ── Ribbon bar ────────────────────────────────────────────────────
     GameObject cardGO = new GameObject("BestScoreCard");
     bestScoreCard = cardGO;
     cardGO.transform.SetParent(mainCanvas.transform, false);
     Image cardImg = cardGO.AddComponent<Image>();
-    Sprite barSpr = Resources.Load<Sprite>("bar_gold");
+    Sprite barSpr = Resources.Load<Sprite>("ribbon") ?? Resources.Load<Sprite>("bar_gold");
     if (barSpr != null) { cardImg.sprite = barSpr; cardImg.preserveAspect = false; }
     cardImg.color = Color.white;
     RectTransform cardRT = cardGO.GetComponent<RectTransform>();
     cardRT.anchorMin = new Vector2(0.5f, 0.5f); cardRT.anchorMax = new Vector2(0.5f, 0.5f);
     cardRT.pivot     = new Vector2(0.5f, 0.5f);
-    cardRT.sizeDelta        = new Vector2(400, 108);
-    cardRT.anchoredPosition = new Vector2(0, 255);
+    cardRT.sizeDelta        = new Vector2(560, 120);
+    cardRT.anchoredPosition = new Vector2(0, 160);
 
-    // ── Score number ──────────────────────────────────────────────────
+    // ── "Best — X" on one line inside ribbon ─────────────────────────
     GameObject bestGO = new GameObject("BestScoreText");
     bestGO.transform.SetParent(cardGO.transform, false);
     bestScoreText = bestGO.AddComponent<TextMeshProUGUI>();
     bestScoreText.font         = tmpFont;
-    bestScoreText.fontSize     = 64;
+    bestScoreText.fontSize     = 62;
     bestScoreText.fontStyle    = FontStyles.Bold;
     bestScoreText.alignment    = TextAlignmentOptions.Center;
     bestScoreText.color        = Color.white;
@@ -2142,23 +2346,8 @@ void CreateBestScoreText()
     scoreRT.anchorMin = Vector2.zero; scoreRT.anchorMax = Vector2.one;
     scoreRT.offsetMin = new Vector2(12, 4); scoreRT.offsetMax = new Vector2(-12, -4);
 
-    // ── "BEST" label — drawn LAST so it renders on top of glow ────────
-    GameObject bestLblGO = new GameObject("BestLabel");
-    bestLblGO.transform.SetParent(mainCanvas.transform, false);
-    TextMeshProUGUI bestLbl = bestLblGO.AddComponent<TextMeshProUGUI>();
-    bestLbl.font         = tmpFont;
-    bestLbl.text         = "BEST";
-    bestLbl.fontSize     = 36;
-    bestLbl.fontStyle    = FontStyles.Bold;
-    bestLbl.color        = new Color(1f, 0.92f, 0.1f);
-    bestLbl.outlineColor = new Color(0.55f, 0.30f, 0f, 1f);
-    bestLbl.outlineWidth = 0.25f;
-    bestLbl.alignment    = TextAlignmentOptions.Center;
-    RectTransform bestLblRT = bestLblGO.GetComponent<RectTransform>();
-    bestLblRT.anchorMin = new Vector2(0.5f, 0.5f); bestLblRT.anchorMax = new Vector2(0.5f, 0.5f);
-    bestLblRT.pivot     = new Vector2(0.5f, 0.5f);
-    bestLblRT.sizeDelta        = new Vector2(300, 46);
-    bestLblRT.anchoredPosition = new Vector2(0, 313);
+    // bestScoreLabel kept as empty placeholder so ShowMenuUI/HideMenuUI still work
+    bestScoreLabel = cardGO;
 
     RefreshBestScore();
 
@@ -2168,22 +2357,26 @@ void CreateBestScoreText()
     _taglineText = tagGO.AddComponent<TextMeshProUGUI>();
     _taglineText.font      = tmpFont;
     _taglineText.text      = "Flip. Dash. Survive.";
-    _taglineText.fontSize  = 34;
+    _taglineText.fontSize  = 44;
     _taglineText.fontStyle = FontStyles.Bold | FontStyles.Italic;
-    _taglineText.color     = new Color(0.40f, 0.95f, 0.95f);
-    _taglineText.alignment = TextAlignmentOptions.Center;
+    _taglineText.color            = new Color(0.15f, 0.30f, 0.50f);
+    _taglineText.outlineColor     = new Color(0f, 0.15f, 0.30f, 1f);
+    _taglineText.outlineWidth     = 0.20f;
+    _taglineText.alignment        = TextAlignmentOptions.Center;
+    _taglineText.textWrappingMode = TextWrappingModes.NoWrap;
+    _taglineText.overflowMode     = TextOverflowModes.Overflow;
     RectTransform tagRT = tagGO.GetComponent<RectTransform>();
     tagRT.anchorMin = new Vector2(0.5f, 0.5f); tagRT.anchorMax = new Vector2(0.5f, 0.5f);
     tagRT.pivot     = new Vector2(0.5f, 0.5f);
-    tagRT.sizeDelta        = new Vector2(500, 54);
-    tagRT.anchoredPosition = new Vector2(0, 178);
+    tagRT.sizeDelta        = new Vector2(700, 58);
+    tagRT.anchoredPosition = new Vector2(0, 20);
 }
 
 void RefreshBestScore()
 {
     int best = PlayerPrefs.GetInt("BestScore", 0);
     if (bestScoreText != null)
-        bestScoreText.text = best > 0 ? best.ToString() : "--";
+        bestScoreText.text = "Best — " + (best > 0 ? best.ToString() : "--");
 }
 
 void CreateGameLogo()
@@ -2194,17 +2387,24 @@ void CreateGameLogo()
     logoGO.transform.SetParent(canvas.transform, false);
 
     gameLogo = logoGO.AddComponent<Image>();
-    Sprite logoSpr = Resources.Load<Sprite>("flippy_fish_logo");
-    if (logoSpr != null) gameLogo.sprite = logoSpr;
-    else if (gameLogoSprite != null) gameLogo.sprite = gameLogoSprite;
+    Sprite logoSpr = Resources.Load<Sprite>("flippy_fish_logo_new");
+    if (logoSpr != null)
+    {
+        gameLogo.sprite = logoSpr;
+    }
+    else
+    {
+        // Log exact path so we can diagnose if the sprite still fails to load
+        Debug.LogError("[GameLogo] flippy_fish_logo_new not found in Resources. Make sure the PNG is inside Assets/Resources/ and Sprite Mode is Single.");
+    }
     gameLogo.preserveAspect = true;
 
     RectTransform rt = logoGO.GetComponent<RectTransform>();
     rt.anchorMin        = new Vector2(0.5f, 1f);
     rt.anchorMax        = new Vector2(0.5f, 1f);
     rt.pivot            = new Vector2(0.5f, 1f);
-    rt.sizeDelta        = new Vector2(760, 500);
-    rt.anchoredPosition = new Vector2(0, -55);
+    rt.sizeDelta        = new Vector2(900, 500);
+    rt.anchoredPosition = new Vector2(0, -160);
 }
 
 // void CreateGround()
@@ -2266,7 +2466,8 @@ void CreateGround()
     float groundHeight = sr1.sprite != null ? sr1.sprite.bounds.size.y : camHeight * 0.22f;
     sr1.size = new Vector2(camWidth * 2f, groundHeight);
 
-    float groundY = -cam.orthographicSize + groundHeight / 2f - 2f;
+    // Use actual camera Y so ground always sits at camera bottom regardless of camera offset
+    float groundY = cam.transform.position.y - cam.orthographicSize + groundHeight / 2f - 2f;
 
     ground1.transform.position = new Vector3(0, groundY, 0);
     ground1.transform.localScale = new Vector3(1f, 1f, 1f); // no flip
@@ -2292,7 +2493,7 @@ void CreateGround()
     sr2.size = sr1.size;
 
     ground2.transform.position =
-        new Vector3(groundWidth, groundY, 0);
+        new Vector3(groundWidth, groundY, 0); // same groundY — accounts for camera offset
 
     BoxCollider2D col2 = ground2.AddComponent<BoxCollider2D>();
     col2.size = new Vector2(sr2.size.x, groundHeight);
@@ -2477,7 +2678,7 @@ public void ReviveAfterAd()
     Time.timeScale = 1f;
     IsGameOver = false;
     CurrentState = GameState.WaitingForRevive;
-    if (scoreText != null) scoreText.gameObject.SetActive(true);
+    if (_scoreBoxRoot != null) _scoreBoxRoot.SetActive(true);
 
     // Freeze player until tap
     if (player != null)
@@ -2518,6 +2719,7 @@ public void ResetPlayerVisual()
             Sprite playSpr = SkinManager.GetSelectedSprite();
             if (playSpr == null) playSpr = playerSprite;
             if (playSpr != null) sr.sprite = playSpr;
+            sr.color = Color.white; // restore from death-grey
             sr.transform.localScale = originalPlayerScale;
         }
     }
@@ -2732,126 +2934,284 @@ IEnumerator ButtonPop(GameObject btn)
 
 void CreateGameOverButtons()
 {
-    // ── OUTER PANEL (dark semi-transparent card) ──────────────────────────
+    Sprite bubbleSpr  = Resources.Load<Sprite>("bubble");
+    Sprite crownSpr   = Resources.Load<Sprite>("icon_crown");
+    Sprite reviveSpr  = Resources.Load<Sprite>("btn_revive");
+    Sprite restartSpr = Resources.Load<Sprite>("btn_restart");
+
+    // ── Rounded rect sprites ──────────────────────────────────────────────
+    Sprite cardSpr   = MakeRoundedRectRuntime(320, 480, 40);
+    Sprite btnSpr    = MakeRoundedRectRuntime(400, 110, 52);
+    Sprite pillSpr   = MakeRoundedRectRuntime(300, 60,  28);
+
+    // ── Full-screen dim ───────────────────────────────────────────────────
     GameObject panel = new GameObject("GameOverPanel");
     panel.transform.SetParent(mainCanvas.transform, false);
-
-    Image panelImg = panel.AddComponent<Image>();
-
-    // Use UISprite (built-in rounded square) for rounded corners
-    Sprite roundedSprite = Resources.Load<Sprite>("UI/Skin/UISprite");
-    if (roundedSprite == null)
-        roundedSprite = GetRoundedSprite();
-    if (roundedSprite != null)
-    {
-        panelImg.sprite = roundedSprite;
-        panelImg.type   = Image.Type.Sliced;
-    }
-    panelImg.color = new Color(0.04f, 0.08f, 0.18f, 0.93f); // deep ocean dark
-
+    Image dimImg = panel.AddComponent<Image>();
+    dimImg.color = new Color(0f, 0.02f, 0.08f, 0.72f);
     RectTransform panelRT = panel.GetComponent<RectTransform>();
-    panelRT.anchorMin        = new Vector2(0.5f, 0.5f);
-    panelRT.anchorMax        = new Vector2(0.5f, 0.5f);
-    panelRT.pivot            = new Vector2(0.5f, 0.5f);
-    panelRT.sizeDelta        = new Vector2(460, 450); // increased from 380 to fit score + buttons
-    panelRT.anchoredPosition = new Vector2(0, 60);
+    panelRT.anchorMin = Vector2.zero; panelRT.anchorMax = Vector2.one;
+    panelRT.offsetMin = panelRT.offsetMax = Vector2.zero;
 
-    // ── GAME OVER LABEL ───────────────────────────────────────────────────
+    // ── Glowing teal border (slightly larger card behind) ─────────────────
+    float cardW = 520f, cardH = 880f;
+    GameObject glowBorder = new GameObject("GlowBorder");
+    glowBorder.transform.SetParent(panel.transform, false);
+    Image gbImg = glowBorder.AddComponent<Image>();
+    gbImg.sprite = cardSpr; gbImg.type = Image.Type.Simple;
+    gbImg.color  = new Color(0.10f, 0.85f, 0.90f, 0.85f);
+    RectTransform gbRT = glowBorder.GetComponent<RectTransform>();
+    gbRT.anchorMin = new Vector2(0.5f,0.5f); gbRT.anchorMax = new Vector2(0.5f,0.5f);
+    gbRT.pivot     = new Vector2(0.5f,0.5f);
+    gbRT.sizeDelta = new Vector2(cardW + 14f, cardH + 14f);
+    gbRT.anchoredPosition = new Vector2(0f, 30f);
+
+    // ── Card body ─────────────────────────────────────────────────────────
+    GameObject card = new GameObject("Card");
+    card.transform.SetParent(panel.transform, false);
+    Image cardImg = card.AddComponent<Image>();
+    cardImg.sprite = cardSpr; cardImg.type = Image.Type.Simple;
+    cardImg.color  = new Color(0.03f, 0.08f, 0.20f, 0.97f);
+    RectTransform cardRT = card.GetComponent<RectTransform>();
+    cardRT.anchorMin = new Vector2(0.5f,0.5f); cardRT.anchorMax = new Vector2(0.5f,0.5f);
+    cardRT.pivot     = new Vector2(0.5f,0.5f);
+    cardRT.sizeDelta = new Vector2(cardW, cardH);
+    cardRT.anchoredPosition = new Vector2(0f, 30f);
+
+    // ── "GAME OVER" label (hidden — kept for code compatibility) ──────────
+    // gameOverText is expected by FadeInGameOverUI — give it a real but invisible node
     GameObject labelGO = new GameObject("GOLabel");
-    labelGO.transform.SetParent(panel.transform, false);
+    labelGO.transform.SetParent(card.transform, false);
     TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
-    label.text      = "GAME  OVER";
-    label.font      = tmpFont;
-    label.fontSize  = 54;
-    label.fontStyle = FontStyles.Bold;
-    label.alignment = TextAlignmentOptions.Center;
-    label.color     = new Color(1f, 0.35f, 0.1f); // fiery orange-red
-
-    // Outline effect via TMP
-    label.outlineColor = new Color(0.6f, 0f, 0f, 1f);
-    label.outlineWidth = 0.15f;
-
+    label.text = "GAME OVER"; label.font = tmpFont; label.fontSize = 1;
+    label.color = Color.clear; // invisible — score is the hero element
     RectTransform labelRT = label.GetComponent<RectTransform>();
-    labelRT.anchorMin        = new Vector2(0f, 1f);
-    labelRT.anchorMax        = new Vector2(1f, 1f);
-    labelRT.pivot            = new Vector2(0.5f, 1f);
-    labelRT.anchoredPosition = new Vector2(0f, -20f);
-    labelRT.sizeDelta        = new Vector2(0f, 70f);
-
-    // Keep a reference so FadeInGameOverUI can still update it
+    labelRT.anchorMin = new Vector2(0f,1f); labelRT.anchorMax = new Vector2(1f,1f);
+    labelRT.pivot     = new Vector2(0.5f,1f);
+    labelRT.anchoredPosition = Vector2.zero; labelRT.sizeDelta = new Vector2(0f,0f);
     gameOverText = label;
 
-    // ── SCORE DISPLAY ─────────────────────────────────────────────────────
+    // ── Score (hero element — large cyan at top of card) ──────────────────
     GameObject scoreGO = new GameObject("GOScore");
-    scoreGO.transform.SetParent(panel.transform, false);
+    scoreGO.transform.SetParent(card.transform, false);
     TextMeshProUGUI scoreLbl = scoreGO.AddComponent<TextMeshProUGUI>();
-    scoreLbl.font      = tmpFont;
-    scoreLbl.fontSize  = 42;
-    scoreLbl.fontStyle = FontStyles.Bold;
-    scoreLbl.alignment = TextAlignmentOptions.Center;
-    scoreLbl.color     = Color.white;
-    scoreLbl.outlineColor = new Color(0f, 0f, 0.2f, 1f);
-    scoreLbl.outlineWidth = 0.12f;
+    scoreLbl.font         = tmpFont;
+    scoreLbl.fontSize     = 72;
+    scoreLbl.fontStyle    = FontStyles.Bold;
+    scoreLbl.alignment    = TextAlignmentOptions.Center;
+    scoreLbl.color        = new Color(0.30f, 0.95f, 1.00f);
+    scoreLbl.outlineColor = new Color(0f, 0.30f, 0.55f, 1f);
+    scoreLbl.outlineWidth = 0.22f;
     RectTransform scoreRT = scoreLbl.GetComponent<RectTransform>();
-    scoreRT.anchorMin        = new Vector2(0f, 1f);
-    scoreRT.anchorMax        = new Vector2(1f, 1f);
-    scoreRT.pivot            = new Vector2(0.5f, 1f);
-    scoreRT.anchoredPosition = new Vector2(0f, -65f);
-    scoreRT.sizeDelta        = new Vector2(0f, 95f); // tall enough for 2 lines
-    gameOverScoreText = scoreLbl; // stored so TriggerGameOver can update it
+    scoreRT.anchorMin = new Vector2(0f,1f); scoreRT.anchorMax = new Vector2(1f,1f);
+    scoreRT.pivot     = new Vector2(0.5f,1f);
+    scoreRT.anchoredPosition = new Vector2(0f, -36f);
+    scoreRT.sizeDelta        = new Vector2(0f, 110f);
+    gameOverScoreText = scoreLbl;
 
+    // ── Crown / trophy icon ───────────────────────────────────────────────
+    GameObject crownGO = new GameObject("Crown");
+    crownGO.transform.SetParent(card.transform, false);
+    Image crownImg = crownGO.AddComponent<Image>();
+    if (crownSpr != null) { crownImg.sprite = crownSpr; crownImg.preserveAspect = true; crownImg.color = Color.white; }
+    else crownImg.color = new Color(1f, 0.82f, 0.1f);
+    RectTransform crownRT = crownGO.GetComponent<RectTransform>();
+    crownRT.anchorMin = new Vector2(0.5f,0.5f); crownRT.anchorMax = new Vector2(0.5f,0.5f);
+    crownRT.pivot     = new Vector2(0.5f,0.5f);
+    crownRT.sizeDelta = new Vector2(110f, 110f);
+    crownRT.anchoredPosition = new Vector2(0f, 160f);
+
+    // ── "Best: X" label ───────────────────────────────────────────────────
+    GameObject bestGO = new GameObject("BestLabel");
+    bestGO.transform.SetParent(card.transform, false);
+    TextMeshProUGUI bestLbl = bestGO.AddComponent<TextMeshProUGUI>();
+    bestLbl.font         = tmpFont;
+    bestLbl.fontSize     = 48;
+    bestLbl.fontStyle    = FontStyles.Bold;
+    bestLbl.alignment    = TextAlignmentOptions.Center;
+    bestLbl.color        = Color.white;
+    bestLbl.outlineColor = new Color(0f, 0.20f, 0.40f, 1f);
+    bestLbl.outlineWidth = 0.18f;
+    bestLbl.text         = "Best: " + PlayerPrefs.GetInt("BestScore", 0);
+    RectTransform bestRT = bestGO.GetComponent<RectTransform>();
+    bestRT.anchorMin = new Vector2(0f,0.5f); bestRT.anchorMax = new Vector2(1f,0.5f);
+    bestRT.pivot     = new Vector2(0.5f,0.5f);
+    bestRT.anchoredPosition = new Vector2(0f, 80f);
+    bestRT.sizeDelta        = new Vector2(0f, 66f);
+
+    // ── Thin divider ──────────────────────────────────────────────────────
+    GameObject divGO = new GameObject("Divider");
+    divGO.transform.SetParent(card.transform, false);
+    Image divImg = divGO.AddComponent<Image>();
+    divImg.color = new Color(0.15f, 0.85f, 0.90f, 0.35f);
+    RectTransform divRT = divGO.GetComponent<RectTransform>();
+    divRT.anchorMin = new Vector2(0.1f,0.5f); divRT.anchorMax = new Vector2(0.9f,0.5f);
+    divRT.pivot     = new Vector2(0.5f,0.5f);
+    divRT.sizeDelta = new Vector2(0f, 2f);
+    divRT.anchoredPosition = new Vector2(0f, 32f);
+
+    // ── REVIVE button (premium — golden, large) ───────────────────────────
     reviveButton = new GameObject("ReviveButton");
-    reviveButton.transform.SetParent(panel.transform, false);
-    Image reviveImg   = reviveButton.AddComponent<Image>();
-    Sprite reviveSpr  = Resources.Load<Sprite>("btn_revive");
-    if (reviveSpr != null) { reviveImg.sprite = reviveSpr; reviveImg.preserveAspect = true; }
-    else reviveImg.color = new Color(1f, 0.50f, 0f);
-    Button reviveBtn  = reviveButton.AddComponent<Button>();
+    reviveButton.transform.SetParent(card.transform, false);
+    Image reviveImg = reviveButton.AddComponent<Image>();
+    if (reviveSpr != null) { reviveImg.sprite = reviveSpr; reviveImg.preserveAspect = false; }
+    else { reviveImg.sprite = btnSpr; reviveImg.type = Image.Type.Simple; reviveImg.color = new Color(0.85f, 0.52f, 0.04f); }
+    Button reviveBtn = reviveButton.AddComponent<Button>();
     reviveBtn.targetGraphic = reviveImg;
     ColorBlock rvcb = reviveBtn.colors;
-    rvcb.highlightedColor = new Color(1f, 0.75f, 0.2f); rvcb.pressedColor = new Color(0.8f, 0.4f, 0f);
+    rvcb.normalColor      = Color.white;
+    rvcb.highlightedColor = new Color(1f, 0.9f, 0.5f);
+    rvcb.pressedColor     = new Color(0.75f, 0.4f, 0.02f);
     reviveBtn.colors = rvcb;
     reviveBtn.onClick.AddListener(OnReviveClicked);
     RectTransform reviveRT = reviveButton.GetComponent<RectTransform>();
-    reviveRT.anchorMin = new Vector2(0.5f, 1f); reviveRT.anchorMax = new Vector2(0.5f, 1f);
-    reviveRT.pivot     = new Vector2(0.5f, 1f);
-    reviveRT.anchoredPosition = new Vector2(0f, -155f);
-    reviveRT.sizeDelta        = new Vector2(360f, 90f);
+    reviveRT.anchorMin = new Vector2(0.5f,0.5f); reviveRT.anchorMax = new Vector2(0.5f,0.5f);
+    reviveRT.pivot     = new Vector2(0.5f,0.5f);
+    reviveRT.sizeDelta        = new Vector2(cardW - 60f, 116f);
+    reviveRT.anchoredPosition = new Vector2(0f, -90f);
+    // Revive label (shown when no sprite, or overlaid for readability)
+    if (reviveSpr == null)
+    {
+        GameObject rvLblGO = new GameObject("ReviveLabel");
+        rvLblGO.transform.SetParent(reviveButton.transform, false);
+        TextMeshProUGUI rvLbl = rvLblGO.AddComponent<TextMeshProUGUI>();
+        rvLbl.text = "Revive"; rvLbl.font = tmpFont; rvLbl.fontSize = 48;
+        rvLbl.fontStyle = FontStyles.Bold; rvLbl.color = Color.white;
+        rvLbl.outlineColor = new Color(0.5f,0.2f,0f,1f); rvLbl.outlineWidth = 0.2f;
+        rvLbl.alignment = TextAlignmentOptions.Center;
+        RectTransform rvRT = rvLbl.GetComponent<RectTransform>();
+        rvRT.anchorMin = Vector2.zero; rvRT.anchorMax = Vector2.one;
+        rvRT.offsetMin = rvRT.offsetMax = Vector2.zero;
+    }
 
-    // ── RESTART BUTTON ────────────────────────────────────────────────────
+    // ── RESTART button (secondary — teal) ────────────────────────────────
     restartButton = new GameObject("RestartButton");
-    restartButton.transform.SetParent(panel.transform, false);
-    Image restartImg  = restartButton.AddComponent<Image>();
-    Sprite restartSpr = Resources.Load<Sprite>("btn_restart");
-    if (restartSpr != null) { restartImg.sprite = restartSpr; restartImg.preserveAspect = true; }
-    else restartImg.color = new Color(0.10f, 0.75f, 0.20f);
+    restartButton.transform.SetParent(card.transform, false);
+    Image restartImg = restartButton.AddComponent<Image>();
+    if (restartSpr != null) { restartImg.sprite = restartSpr; restartImg.preserveAspect = false; }
+    else { restartImg.sprite = btnSpr; restartImg.type = Image.Type.Simple; restartImg.color = new Color(0.04f, 0.62f, 0.68f); }
     Button restartBtn = restartButton.AddComponent<Button>();
     restartBtn.targetGraphic = restartImg;
     ColorBlock rscb = restartBtn.colors;
-    rscb.highlightedColor = new Color(0.3f, 1f, 0.45f); rscb.pressedColor = new Color(0.06f, 0.55f, 0.14f);
+    rscb.normalColor      = Color.white;
+    rscb.highlightedColor = new Color(0.6f, 1f, 1f);
+    rscb.pressedColor     = new Color(0.02f, 0.45f, 0.50f);
     restartBtn.colors = rscb;
     restartBtn.onClick.AddListener(() =>
     {
         Time.timeScale = 1f;
         FirebaseGameManager firebase = FindObjectOfType<FirebaseGameManager>();
-        if (firebase != null)
-            firebase.TriggerRestartWithAd();
-        else
-            RestartGame();
+        if (firebase != null) firebase.TriggerRestartWithAd();
+        else RestartGame();
     });
     RectTransform restartRT = restartButton.GetComponent<RectTransform>();
-    restartRT.anchorMin = new Vector2(0.5f, 1f); restartRT.anchorMax = new Vector2(0.5f, 1f);
-    restartRT.pivot     = new Vector2(0.5f, 1f);
-    restartRT.anchoredPosition = new Vector2(0f, -265f);
-    restartRT.sizeDelta        = new Vector2(360f, 90f);
+    restartRT.anchorMin = new Vector2(0.5f,0.5f); restartRT.anchorMax = new Vector2(0.5f,0.5f);
+    restartRT.pivot     = new Vector2(0.5f,0.5f);
+    restartRT.sizeDelta        = new Vector2(cardW - 60f, 96f);
+    restartRT.anchoredPosition = new Vector2(0f, -226f);
+    if (restartSpr == null)
+    {
+        GameObject rsLblGO = new GameObject("RestartLabel");
+        rsLblGO.transform.SetParent(restartButton.transform, false);
+        TextMeshProUGUI rsLbl = rsLblGO.AddComponent<TextMeshProUGUI>();
+        rsLbl.text = "Restart"; rsLbl.font = tmpFont; rsLbl.fontSize = 42;
+        rsLbl.fontStyle = FontStyles.Bold; rsLbl.color = Color.white;
+        rsLbl.outlineColor = new Color(0f,0.3f,0.35f,1f); rsLbl.outlineWidth = 0.2f;
+        rsLbl.alignment = TextAlignmentOptions.Center;
+        RectTransform rsRT = rsLbl.GetComponent<RectTransform>();
+        rsRT.anchorMin = Vector2.zero; rsRT.anchorMax = Vector2.one;
+        rsRT.offsetMin = rsRT.offsetMax = Vector2.zero;
+    }
 
-    // Hide panel initially — showing it brings everything at once, in correct order
+    // ── Footer bar (skin hint + streak, anchored to bottom of screen) ─────
+    GameObject footer = new GameObject("Footer");
+    footer.transform.SetParent(panel.transform, false);
+    Image footerImg = footer.AddComponent<Image>();
+    footerImg.color = new Color(0f, 0f, 0f, 0.55f);
+    RectTransform footerRT = footer.GetComponent<RectTransform>();
+    footerRT.anchorMin = new Vector2(0f,0f); footerRT.anchorMax = new Vector2(1f,0f);
+    footerRT.pivot     = new Vector2(0.5f,0f);
+    footerRT.sizeDelta = new Vector2(0f, 110f);
+    footerRT.anchoredPosition = Vector2.zero;
+
+    // Skin hint — populated at runtime in TriggerGameOver via "NextUnlockHint" name
+    GameObject hintGO = new GameObject("NextUnlockHint");
+    hintGO.transform.SetParent(footer.transform, false);
+    TextMeshProUGUI hintLbl = hintGO.AddComponent<TextMeshProUGUI>();
+    hintLbl.font = tmpFont; hintLbl.fontSize = 22; hintLbl.fontStyle = FontStyles.Bold;
+    hintLbl.color = new Color(0.25f,0.95f,1f,1f); hintLbl.alignment = TextAlignmentOptions.Center;
+    hintLbl.enableWordWrapping = false; hintLbl.overflowMode = TextOverflowModes.Overflow;
+    RectTransform hintRT = hintGO.GetComponent<RectTransform>();
+    hintRT.anchorMin = new Vector2(0f,1f); hintRT.anchorMax = new Vector2(1f,1f);
+    hintRT.pivot     = new Vector2(0.5f,1f);
+    hintRT.sizeDelta = new Vector2(0f, 46f);
+    hintRT.anchoredPosition = new Vector2(0f, -8f);
+
+    // Streak teaser — populated at runtime via "StreakTeaser" name
+    GameObject teaserGO = new GameObject("StreakTeaser");
+    teaserGO.transform.SetParent(footer.transform, false);
+    TextMeshProUGUI teaserLbl = teaserGO.AddComponent<TextMeshProUGUI>();
+    teaserLbl.font = tmpFont; teaserLbl.fontSize = 20;
+    teaserLbl.color = new Color(1f,0.88f,0.30f,1f); teaserLbl.alignment = TextAlignmentOptions.Center;
+    teaserLbl.enableWordWrapping = false; teaserLbl.overflowMode = TextOverflowModes.Overflow;
+    RectTransform teaserRT = teaserGO.GetComponent<RectTransform>();
+    teaserRT.anchorMin = new Vector2(0f,1f); teaserRT.anchorMax = new Vector2(1f,1f);
+    teaserRT.pivot     = new Vector2(0.5f,1f);
+    teaserRT.sizeDelta = new Vector2(0f, 40f);
+    teaserRT.anchoredPosition = new Vector2(0f, -56f);
+
+    // ── Finalise ──────────────────────────────────────────────────────────
     panel.SetActive(false);
-
-    // Store panel ref so TriggerGameOver can show/hide it
     gameOverPanel = panel;
-    reviveButton.SetActive(true);   // children start active; panel itself is hidden
+    reviveButton.SetActive(true);
     restartButton.SetActive(true);
+}
+
+// Recursive TMP search — finds named child anywhere in hierarchy
+TextMeshProUGUI FindTMPInChildren(Transform root, string name)
+{
+    Transform found = FindChildRecursive(root, name);
+    return found != null ? found.GetComponent<TextMeshProUGUI>() : null;
+}
+Transform FindChildRecursive(Transform t, string name)
+{
+    foreach (Transform child in t)
+    {
+        if (child.name == name) return child;
+        Transform r = FindChildRecursive(child, name);
+        if (r != null) return r;
+    }
+    return null;
+}
+string BuildSkinHintText()
+{
+    int sel  = SkinManager.GetSelectedSkin();
+    int next = sel + 1;
+    if (next >= SkinManager.SkinCosts.Length) return "You've unlocked all skins!";
+    int cost  = SkinManager.SkinCosts[next];
+    int coins = SkinManager.GetCoins();
+    int need  = Mathf.Max(0, cost - coins);
+    return need == 0
+        ? $"You can unlock the next skin now!"
+        : $"Collect {need:N0} more coins to unlock next skin!";
+}
+
+// Generates a rounded-rect texture at runtime (used only once per build of UI)
+Sprite MakeRoundedRectRuntime(int w, int h, int r)
+{
+    var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+    tex.filterMode = FilterMode.Bilinear;
+    var px = new Color32[w * h];
+    for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+    {
+        int cx = Mathf.Clamp(x, r, w - r);
+        int cy = Mathf.Clamp(y, r, h - r);
+        float d = Vector2.Distance(new Vector2(x,y), new Vector2(cx,cy));
+        px[y*w+x] = d <= r ? new Color32(255,255,255,255) : new Color32(0,0,0,0);
+    }
+    tex.SetPixels32(px); tex.Apply();
+    return Sprite.Create(tex, new Rect(0,0,w,h), new Vector2(0.5f,0.5f));
 }
 void OnReviveClicked()
 {
@@ -2860,6 +3220,17 @@ void OnReviveClicked()
     if (reviveButton != null)    reviveButton.SetActive(false);
     if (restartButton != null)   restartButton.SetActive(false);
     if (gameOverImageObj != null) gameOverImageObj.SetActive(false);
+
+    if (AdManager.Instance == null)
+    {
+        // AdManager not ready — restore game over UI so player isn't stuck
+        Debug.LogWarning("[Revive] AdManager.Instance is null — restoring game over panel");
+        if (gameOverPanel != null)   gameOverPanel.SetActive(true);
+        if (restartButton != null)   restartButton.SetActive(true);
+        if (gameOverImageObj != null) gameOverImageObj.SetActive(true);
+        if (reviveButton != null)    reviveButton.SetActive(true);
+        return;
+    }
 
     AdManager.Instance.ShowAd(
         onRewardEarned: () =>
@@ -3072,87 +3443,167 @@ IEnumerator ReliefPipePulse(Transform pipe)
 
 void CreateDailyQuestsPanelUI()
 {
-    if (mainCanvas == null)
+    Debug.Log("[DailyQuests] CreateDailyQuestsPanelUI v4");
+
+    // ── Dedicated top-level overlay canvas (sort 9999 — above everything) ──
+    var overlayCanvasGO = new GameObject("QuestOverlayCanvas");
+    var overlayCanvas = overlayCanvasGO.AddComponent<Canvas>();
+    overlayCanvas.renderMode   = RenderMode.ScreenSpaceOverlay;
+    overlayCanvas.sortingOrder = 9999;
+    var overlayScaler = overlayCanvasGO.AddComponent<CanvasScaler>();
+    overlayScaler.uiScaleMode         = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+    overlayScaler.referenceResolution = new Vector2(1080f, 1920f);
+    overlayScaler.matchWidthOrHeight  = 0.5f;
+    overlayCanvasGO.AddComponent<GraphicRaycaster>();
+
+    // ── Dim overlay (full screen, closes panel on tap) ─────────────────────
+    var dimGO = new GameObject("QuestDimOverlay");
+    dimGO.transform.SetParent(overlayCanvasGO.transform, false);
+    var dimImg = dimGO.AddComponent<Image>();
+    dimImg.color = new Color(0f, 0f, 0f, 0.88f);
+    var dimRT = dimGO.GetComponent<RectTransform>();
+    dimRT.anchorMin = Vector2.zero; dimRT.anchorMax = Vector2.one;
+    dimRT.offsetMin = dimRT.offsetMax = Vector2.zero;
+    dimGO.AddComponent<Button>().onClick.AddListener(CloseDailyQuests);
+
+    // ── Panel (full screen, dark navy — IS the background) ─────────────────
+    var panelGO = new GameObject("DailyQuestsPanel");
+    panelGO.transform.SetParent(overlayCanvasGO.transform, false);
+    var panelImg = panelGO.AddComponent<Image>();
+    panelImg.color = new Color(0.04f, 0.10f, 0.22f, 1f);
+    var panelRT = panelGO.GetComponent<RectTransform>();
+    panelRT.anchorMin = panelRT.anchorMax = panelRT.pivot = new Vector2(0.5f, 0.5f);
+    panelRT.sizeDelta        = new Vector2(1159f, 1380f);
+    panelRT.anchoredPosition = new Vector2(0f, 69f);
+
+    // ── HEADER (blue, 160px, rounded top corners) ──────────────────────────
+    var hdrGO = new GameObject("Header");
+    hdrGO.transform.SetParent(panelGO.transform, false);
+    var hdrImg = hdrGO.AddComponent<Image>();
+    hdrImg.color = new Color(0.09f, 0.35f, 0.78f, 1f);
+    var hdrRT = hdrGO.GetComponent<RectTransform>();
+    hdrRT.anchorMin = new Vector2(0f, 1f); hdrRT.anchorMax = new Vector2(1f, 1f);
+    hdrRT.pivot = new Vector2(0.5f, 1f);
+    hdrRT.sizeDelta = new Vector2(0f, 184f);
+    hdrRT.anchoredPosition = Vector2.zero;
+
+    // Fish icon in a circle
+    var fishSpr = Resources.Load<Sprite>("Fish_quest");
+    if (fishSpr != null)
     {
-        Debug.LogError("[DailyQuests] mainCanvas is null - cannot create panel");
-        return;
+        var circGO = new GameObject("FishCircle"); circGO.transform.SetParent(hdrGO.transform, false);
+        var circImg = circGO.AddComponent<Image>();
+        circImg.sprite = MakeRoundedRectSprite(101, 101, 51); circImg.color = new Color(1f,1f,1f,0.18f);
+        var circRT = circGO.GetComponent<RectTransform>();
+        circRT.anchorMin = circRT.anchorMax = new Vector2(0f, 0.5f); circRT.pivot = new Vector2(0f, 0.5f);
+        circRT.sizeDelta = new Vector2(101f, 101f); circRT.anchoredPosition = new Vector2(21f, 0f);
+
+        var fishGO = new GameObject("FishIcon"); fishGO.transform.SetParent(circGO.transform, false);
+        var fishImg = fishGO.AddComponent<Image>(); fishImg.sprite = fishSpr; fishImg.preserveAspect = true;
+        var fishRT = fishGO.GetComponent<RectTransform>();
+        fishRT.anchorMin = fishRT.anchorMax = fishRT.pivot = new Vector2(0.5f, 0.5f);
+        fishRT.sizeDelta = new Vector2(74f, 74f); fishRT.anchoredPosition = Vector2.zero;
     }
 
-    // ===== CREATE QUEST PANEL =====
-    GameObject questPanelGO = new GameObject("DailyQuestsPanel");
-    questPanelGO.transform.SetParent(mainCanvas.transform, false);
+    // Title
+    var titleGO = new GameObject("Title"); titleGO.transform.SetParent(hdrGO.transform, false);
+    var titleTxt = titleGO.AddComponent<TextMeshProUGUI>();
+    titleTxt.text = "DAILY QUESTS"; titleTxt.fontSize = 60f;
+    titleTxt.fontStyle = FontStyles.Bold; titleTxt.color = Color.white;
+    titleTxt.alignment = TextAlignmentOptions.Center;
+    var titleRT = titleGO.GetComponent<RectTransform>();
+    titleRT.anchorMin = Vector2.zero; titleRT.anchorMax = Vector2.one;
+    titleRT.offsetMin = new Vector2(127f, 0f); titleRT.offsetMax = new Vector2(-127f, 0f);
 
-    Image bg = questPanelGO.AddComponent<Image>();
-    bg.color = new Color(0.05f, 0.3f, 0.5f, 0.95f);
+    // X close button
+    var xGO = new GameObject("CloseX"); xGO.transform.SetParent(hdrGO.transform, false);
+    var xBgImg = xGO.AddComponent<Image>();
+    xBgImg.sprite = MakeRoundedRectSprite(83, 83, 42); xBgImg.color = new Color(1f,1f,1f,0.22f);
+    xGO.AddComponent<Button>().onClick.AddListener(CloseDailyQuests);
+    var xRT = xGO.GetComponent<RectTransform>();
+    xRT.anchorMin = xRT.anchorMax = new Vector2(1f, 0.5f); xRT.pivot = new Vector2(1f, 0.5f);
+    xRT.sizeDelta = new Vector2(83f, 83f); xRT.anchoredPosition = new Vector2(-21f, 0f);
+    var xTxtGO = new GameObject("X"); xTxtGO.transform.SetParent(xGO.transform, false);
+    var xTxt = xTxtGO.AddComponent<TextMeshProUGUI>();
+    xTxt.text = "X"; xTxt.fontSize = 44f; xTxt.fontStyle = FontStyles.Bold;
+    xTxt.color = Color.white; xTxt.alignment = TextAlignmentOptions.Center;
+    var xTxtRT = xTxtGO.GetComponent<RectTransform>();
+    xTxtRT.anchorMin = Vector2.zero; xTxtRT.anchorMax = Vector2.one;
+    xTxtRT.offsetMin = xTxtRT.offsetMax = Vector2.zero;
 
-    RectTransform rt = questPanelGO.GetComponent<RectTransform>();
-    rt.anchoredPosition = Vector2.zero;
-    rt.sizeDelta = new Vector2(700, 500);
+    // ── OVERALL PROGRESS ROW ───────────────────────────────────────────────
+    var ovRowGO = new GameObject("OverallRow"); ovRowGO.transform.SetParent(panelGO.transform, false);
+    var ovRowRT = ovRowGO.AddComponent<RectTransform>();
+    ovRowRT.anchorMin = new Vector2(0f, 1f); ovRowRT.anchorMax = new Vector2(1f, 1f);
+    ovRowRT.pivot = new Vector2(0.5f, 1f);
+    ovRowRT.anchoredPosition = new Vector2(0f, -193f);
+    ovRowRT.sizeDelta = new Vector2(-92f, 87f);
 
-    // ===== CREATE DARK OVERLAY =====
-    GameObject bgPanelGO = new GameObject("BackgroundOverlay");
-    bgPanelGO.transform.SetParent(mainCanvas.transform, false);
-    bgPanelGO.transform.SetSiblingIndex(questPanelGO.transform.GetSiblingIndex() - 1);
+    // Label
+    var ovLblGO = new GameObject("OvLabel"); ovLblGO.transform.SetParent(ovRowGO.transform, false);
+    var ovLbl = ovLblGO.AddComponent<TextMeshProUGUI>();
+    ovLbl.text = "Daily Progress   0 / 3 completed";
+    ovLbl.fontSize = 28f; ovLbl.color = new Color(1f,1f,1f,0.55f);
+    ovLbl.alignment = TextAlignmentOptions.BottomLeft;
+    var ovLblRT = ovLblGO.GetComponent<RectTransform>();
+    ovLblRT.anchorMin = new Vector2(0f, 0.45f); ovLblRT.anchorMax = new Vector2(1f, 1f);
+    ovLblRT.offsetMin = ovLblRT.offsetMax = Vector2.zero;
+    _questOverallLabel = ovLbl;
 
-    Image bgOverlay = bgPanelGO.AddComponent<Image>();
-    bgOverlay.color = new Color(0, 0, 0, 0.6f);
+    // Track (light, visible on dark bg)
+    var ovTrackGO = new GameObject("OvTrack"); ovTrackGO.transform.SetParent(ovRowGO.transform, false);
+    var ovTrackImg = ovTrackGO.AddComponent<Image>();
+    ovTrackImg.color = new Color(1f,1f,1f,0.12f);
+    var ovTrackRT = ovTrackGO.GetComponent<RectTransform>();
+    ovTrackRT.anchorMin = new Vector2(0f, 0f); ovTrackRT.anchorMax = new Vector2(1f, 0.42f);
+    ovTrackRT.offsetMin = ovTrackRT.offsetMax = Vector2.zero;
 
-    RectTransform bgRT = bgPanelGO.GetComponent<RectTransform>();
-    bgRT.anchorMin = Vector2.zero;
-    bgRT.anchorMax = Vector2.one;
-    bgRT.offsetMin = Vector2.zero;
-    bgRT.offsetMax = Vector2.zero;
+    // Fill
+    var ovFillGO = new GameObject("OvFill"); ovFillGO.transform.SetParent(ovTrackGO.transform, false);
+    var ovFillImg = ovFillGO.AddComponent<Image>();
+    ovFillImg.color = new Color(0.15f, 0.88f, 0.38f, 1f);
+    var ovFillRT = ovFillGO.GetComponent<RectTransform>();
+    ovFillRT.anchorMin = new Vector2(0f, 0f); ovFillRT.anchorMax = new Vector2(0f, 1f);
+    ovFillRT.pivot = new Vector2(0f, 0.5f);
+    ovFillRT.offsetMin = ovFillRT.offsetMax = Vector2.zero;
+    _questOverallFill = ovFillImg;
 
-    // Hide immediately — before any content is built so an exception below can never leave them visible
-    questPanelGO.SetActive(false);
-    bgPanelGO.SetActive(false);
+    // ── CONTENT ROOT (fixed height, top-anchored, fits 3 cards exactly) ───
+    var contentGO = new GameObject("QuestContentRoot");
+    contentGO.transform.SetParent(panelGO.transform, false);
+    var contentRT = contentGO.AddComponent<RectTransform>();
+    contentRT.anchorMin = new Vector2(0f, 1f); contentRT.anchorMax = new Vector2(1f, 1f);
+    contentRT.pivot = new Vector2(0.5f, 1f);
+    contentRT.sizeDelta = new Vector2(-46f, 943f);
+    contentRT.anchoredPosition = new Vector2(0f, -299f);
+    _questContentRoot = contentGO.transform;
 
-    // ===== CREATE TITLE =====
-    GameObject titleGO = new GameObject("Title");
-    titleGO.transform.SetParent(questPanelGO.transform, false);
-    TextMeshProUGUI title = titleGO.AddComponent<TextMeshProUGUI>();
-    title.text = "📋 DAILY QUESTS";
-    title.alignment = TextAlignmentOptions.Top;
-    title.fontSize = 36;
-    title.fontStyle = FontStyles.Bold;
-    title.color = Color.yellow;
+    // ── FOOTER TIMER (just below content root: 260+820+16=1096) ───────────
+    var footBgGO = new GameObject("FooterBg"); footBgGO.transform.SetParent(panelGO.transform, false);
+    var footBgImg = footBgGO.AddComponent<Image>();
+    footBgImg.sprite = MakeRoundedRectSprite(1104, 87, 44); footBgImg.type = Image.Type.Simple;
+    footBgImg.color = new Color(0.07f, 0.20f, 0.46f, 1f);
+    var footBgRT = footBgGO.GetComponent<RectTransform>();
+    footBgRT.anchorMin = new Vector2(0f, 1f); footBgRT.anchorMax = new Vector2(1f, 1f);
+    footBgRT.pivot = new Vector2(0.5f, 1f);
+    footBgRT.sizeDelta = new Vector2(-69f, 87f);
+    footBgRT.anchoredPosition = new Vector2(0f, -1260f);
 
-    RectTransform titleRT = titleGO.GetComponent<RectTransform>();
-    titleRT.anchoredPosition = new Vector2(0, -40);
-    titleRT.sizeDelta = new Vector2(650, 60);
+    var footTxtGO = new GameObject("FooterTxt"); footTxtGO.transform.SetParent(footBgGO.transform, false);
+    var footTxt = footTxtGO.AddComponent<TextMeshProUGUI>();
+    footTxt.text = "Quests reset in  --h  --m  --s"; footTxt.fontSize = 32f;
+    footTxt.fontStyle = FontStyles.Bold; footTxt.color = new Color(1f, 0.88f, 0.2f, 1f);
+    footTxt.alignment = TextAlignmentOptions.Center;
+    var footTxtRT = footTxtGO.GetComponent<RectTransform>();
+    footTxtRT.anchorMin = Vector2.zero; footTxtRT.anchorMax = Vector2.one;
+    footTxtRT.offsetMin = footTxtRT.offsetMax = Vector2.zero;
+    _questTimerText = footTxt;
 
-    // ===== CREATE QUEST CONTENT ROOT =====
-    // Quest rows are NOT built here — DailyQuestManager may not be ready at startup.
-    // They are built fresh each time ShowDailyQuests() is called.
-    GameObject contentRootGO = new GameObject("QuestContentRoot");
-    contentRootGO.transform.SetParent(questPanelGO.transform, false);
-    _questContentRoot = contentRootGO.transform;
-
-    // ===== CREATE CLOSE HINT =====
-    GameObject closeGO = new GameObject("CloseHint");
-    closeGO.transform.SetParent(questPanelGO.transform, false);
-    TextMeshProUGUI closeText = closeGO.AddComponent<TextMeshProUGUI>();
-    closeText.text = "Tap QUESTS button again to close";
-    closeText.alignment = TextAlignmentOptions.Bottom;
-    closeText.fontSize = 16;
-    closeText.color = new Color(1, 1, 1, 0.6f);
-
-    RectTransform closeRT = closeGO.GetComponent<RectTransform>();
-    closeRT.anchoredPosition = new Vector2(0, 20);
-    closeRT.sizeDelta = new Vector2(650, 40);
-
-    // ===== ADD CLOSE BUTTON TO PANEL =====
-    Button closeBtn = questPanelGO.AddComponent<Button>();
-    closeBtn.onClick.AddListener(() => CloseDailyQuests());
-
-    // ===== STORE REFERENCES AND HIDE =====
-    this.dailyQuestPanel = questPanelGO;
-    this.darkOverlay = bgPanelGO;
-    dailyQuestPanel.SetActive(false);
-    darkOverlay.SetActive(false);
+    this.dailyQuestPanel = panelGO;
+    this.darkOverlay     = dimGO;
+    panelGO.SetActive(false);
+    dimGO.SetActive(false);
     isQuestPanelOpen = false;
-
-    Debug.Log("[🎯 DailyQuests] Panel created and initialized (hidden)");
 }
 
 void CreateDailyQuestsButton()
@@ -3166,9 +3617,7 @@ void CreateDailyQuestsButton()
     // ===== CREATE BUTTON CONTAINER =====
     GameObject questButtonGO = new GameObject("DailyQuestsButton");
     questButtonGO.transform.SetParent(mainCanvas.transform, false);
-    // Do NOT SetAsFirstSibling — that draws it BEHIND everything.
-    // Normal sibling order is fine; ShowDailyQuests() will SetAsLastSibling when panel opens.
-    
+
     Image btnImage    = questButtonGO.AddComponent<Image>();
     Sprite questSpr   = Resources.Load<Sprite>("btn_quest");
     if (questSpr != null) { btnImage.sprite = questSpr; btnImage.preserveAspect = true; }
@@ -3180,8 +3629,6 @@ void CreateDailyQuestsButton()
     float btnW   = Screen.width  * 0.28f;
     float btnH   = Screen.height * 0.07f;
     float margin = Screen.width  * 0.03f;
-    // Coin display occupies bottom-right at y=margin (height=btnH).
-    // Quest button must be ABOVE it: y = margin + btnH + gap(10).
     float questY = margin + btnH + 10f;
     RectTransform btnRect = questButtonGO.GetComponent<RectTransform>();
     btnRect.anchorMin        = new Vector2(1f, 0f);
@@ -3189,105 +3636,280 @@ void CreateDailyQuestsButton()
     btnRect.pivot            = new Vector2(1f, 0f);
     btnRect.anchoredPosition = new Vector2(-margin, questY);
     btnRect.sizeDelta        = new Vector2(btnW, btnH);
-    
-    // ===== ADD CLICK LISTENER WITH TOGGLE =====
+
     questBtn.onClick.AddListener(() => {
         if (isQuestPanelOpen)
             CloseDailyQuests();
         else
             ShowDailyQuests();
     });
-    
-    // ===== STORE BUTTON REFERENCE =====
+
     this.questButtonGO = questButtonGO;
-    
-    // ===== ADD BUTTON NAVIGATION =====
-    // Makes button properly interact with UI system
+
     Navigation nav = new Navigation();
     nav.mode = Navigation.Mode.None;
     questBtn.navigation = nav;
-    
-    // Suppress old quest button — Firebase bottom nav bar replaces it
+
     questButtonGO.SetActive(false);
 }
 
 void ShowDailyQuests()
 {
     if (isQuestPanelOpen) return;
-    if (dailyQuestPanel == null || darkOverlay == null) { Debug.LogError("[DailyQuests] Panel not initialized"); return; }
+    if (dailyQuestPanel == null || darkOverlay == null) { Debug.LogError("[DailyQuests] Panel not built"); return; }
 
-    // Rebuild quest rows fresh so progress is always current
+    // Hide entire Firebase canvas so nothing bleeds through
+    _hiddenFirebaseCanvas = GameObject.Find("Canvas");
+    if (_hiddenFirebaseCanvas != null) _hiddenFirebaseCanvas.SetActive(false);
+
+    DailyQuestManager.Create();
+
+    // Clear old cards
     if (_questContentRoot != null)
-    {
         foreach (Transform child in _questContentRoot) Destroy(child.gameObject);
 
-        var quests = DailyQuestManager.Instance != null
-            ? DailyQuestManager.GetDailyQuests()
-            : new System.Collections.Generic.List<DailyQuestManager.Quest>();
+    var quests = DailyQuestManager.Instance != null
+        ? DailyQuestManager.GetDailyQuests()
+        : new System.Collections.Generic.List<DailyQuestManager.Quest>();
 
-        float yOffset = -120f;
-        int idx = 0;
-        foreach (var quest in quests)
+    // ── Overall progress ──────────────────────────────────────────────────
+    int completedCount = 0;
+    foreach (var q in quests) if (q.completed) completedCount++;
+    if (_questOverallFill != null)
+    {
+        float pct = quests.Count > 0 ? (float)completedCount / quests.Count : 0f;
+        _questOverallFill.GetComponent<RectTransform>().anchorMax = new Vector2(pct, 1f);
+    }
+    if (_questOverallLabel != null)
+        _questOverallLabel.text = $"Daily Progress   {completedCount} / {quests.Count} completed";
+
+    // ── Sprites ───────────────────────────────────────────────────────────
+    Sprite fishSpr = Resources.Load<Sprite>("Fish_quest");
+    Sprite coinSpr = Resources.Load<Sprite>("Coin_stack");
+    Sprite pillSpr = Resources.Load<Sprite>("Pill_quest");
+
+    // ── Card constants ────────────────────────────────────────────────────
+    float cardH    = 288f;
+    float cardGap  = 21f;
+    float topPad   = 18f;
+    float iconColW = 150f;
+    float rewColW  = 173f;
+
+    // Active card colour vs completed card colour
+    Color cardActiveCol = new Color(0.06f, 0.18f, 0.44f, 1f);
+    Color cardDoneCol   = new Color(0.04f, 0.22f, 0.12f, 1f);
+    Color accentActive  = new Color(0.28f, 0.62f, 1.00f);
+    Color accentDone    = new Color(0.18f, 0.88f, 0.42f);
+    Color circleActive  = new Color(0.14f, 0.38f, 0.88f);
+    Color circleDone    = new Color(0.12f, 0.60f, 0.26f);
+
+    for (int idx = 0; idx < quests.Count; idx++)
+    {
+        var   quest  = quests[idx];
+        bool  done   = quest.completed;
+        Sprite iconSpr = quest.type == DailyQuestManager.Quest.QuestType.CollectCoins ? coinSpr : fishSpr;
+
+        // ── CARD SHELL (rounded corners) ──────────────────────────────────
+        var cardGO = new GameObject($"QCard_{idx}");
+        cardGO.transform.SetParent(_questContentRoot, false);
+        var cardImg = cardGO.AddComponent<Image>();
+        cardImg.sprite = MakeRoundedRectSprite(1150, (int)cardH, 32);
+        cardImg.type   = Image.Type.Simple;
+        cardImg.color  = done ? cardDoneCol : cardActiveCol;
+        var cardRT = cardGO.GetComponent<RectTransform>();
+        cardRT.anchorMin = new Vector2(0f, 1f); cardRT.anchorMax = new Vector2(1f, 1f);
+        cardRT.pivot     = new Vector2(0.5f, 1f);
+        cardRT.sizeDelta = new Vector2(0f, cardH);
+        cardRT.anchoredPosition = new Vector2(0f, -(topPad + idx * (cardH + cardGap)));
+
+        // Left accent strip (10px, bright)
+        var accGO = new GameObject("Accent"); accGO.transform.SetParent(cardGO.transform, false);
+        var accImg = accGO.AddComponent<Image>();
+        accImg.sprite = MakeRoundedRectSprite(12, (int)cardH - 23, 6);
+        accImg.color  = done ? accentDone : accentActive;
+        var accRT = accGO.GetComponent<RectTransform>();
+        accRT.anchorMin = new Vector2(0f, 0.5f); accRT.anchorMax = new Vector2(0f, 0.5f);
+        accRT.pivot = new Vector2(0f, 0.5f);
+        accRT.sizeDelta = new Vector2(12f, cardH - 23f);
+        accRT.anchoredPosition = Vector2.zero;
+
+        // ── LEFT ICON COLUMN ──────────────────────────────────────────────
+        var iconColGO = new GameObject("IconCol"); iconColGO.transform.SetParent(cardGO.transform, false);
+        iconColGO.AddComponent<Image>().color = new Color(0f,0f,0f,0f); // transparent container
+        var iconColRT = iconColGO.GetComponent<RectTransform>();
+        iconColRT.anchorMin = new Vector2(0f, 0f); iconColRT.anchorMax = new Vector2(0f, 1f);
+        iconColRT.pivot = new Vector2(0f, 0.5f);
+        iconColRT.sizeDelta = new Vector2(iconColW, 0f);
+        iconColRT.anchoredPosition = Vector2.zero;
+
+        // Coloured circle background for icon
+        var circGO = new GameObject("IconCircle"); circGO.transform.SetParent(iconColGO.transform, false);
+        var circImg = circGO.AddComponent<Image>();
+        circImg.sprite = MakeRoundedRectSprite(138, 138, 69);
+        circImg.color  = done ? circleDone : circleActive;
+        var circRT = circGO.GetComponent<RectTransform>();
+        circRT.anchorMin = circRT.anchorMax = circRT.pivot = new Vector2(0.5f, 0.5f);
+        circRT.sizeDelta = new Vector2(138f, 138f); circRT.anchoredPosition = Vector2.zero;
+
+        // Icon sprite inside circle
+        if (iconSpr != null)
         {
-            idx++;
+            var icoGO = new GameObject("Icon"); icoGO.transform.SetParent(circGO.transform, false);
+            var icoImg = icoGO.AddComponent<Image>();
+            icoImg.sprite = iconSpr; icoImg.preserveAspect = true; icoImg.color = Color.white;
+            var icoRT = icoGO.GetComponent<RectTransform>();
+            icoRT.anchorMin = icoRT.anchorMax = icoRT.pivot = new Vector2(0.5f, 0.5f);
+            icoRT.sizeDelta = new Vector2(97f, 97f); icoRT.anchoredPosition = Vector2.zero;
+        }
 
-            var titleGO = new GameObject($"Q{idx}_Title");
-            titleGO.transform.SetParent(_questContentRoot, false);
-            var titleUI = titleGO.AddComponent<TextMeshProUGUI>();
-            titleUI.text = quest.completed ? "✅ " + quest.title : quest.title;
-            titleUI.alignment = TextAlignmentOptions.Left;
-            titleUI.fontSize = 22; titleUI.fontStyle = FontStyles.Bold;
-            titleUI.color = quest.completed ? Color.green : Color.white;
-            var titleRT = titleUI.GetComponent<RectTransform>();
-            titleRT.anchoredPosition = new Vector2(-300, yOffset);
-            titleRT.sizeDelta = new Vector2(600, 40);
-            yOffset -= 46f;
+        // ── RIGHT REWARD COLUMN ───────────────────────────────────────────
+        var rewColGO = new GameObject("RewardCol"); rewColGO.transform.SetParent(cardGO.transform, false);
+        rewColGO.AddComponent<Image>().color = new Color(0f,0f,0f,0f); // transparent container
+        var rewColRT = rewColGO.GetComponent<RectTransform>();
+        rewColRT.anchorMin = new Vector2(1f, 0f); rewColRT.anchorMax = new Vector2(1f, 1f);
+        rewColRT.pivot = new Vector2(1f, 0.5f);
+        rewColRT.sizeDelta = new Vector2(rewColW, 0f);
+        rewColRT.anchoredPosition = Vector2.zero;
 
-            var progGO = new GameObject($"Q{idx}_Prog");
-            progGO.transform.SetParent(_questContentRoot, false);
-            var progUI = progGO.AddComponent<TextMeshProUGUI>();
-            progUI.text = $"{quest.currentProgress}/{quest.targetValue}  ·  Reward: {quest.rewardCoins} 🪙";
-            progUI.alignment = TextAlignmentOptions.Left;
-            progUI.fontSize = 19;
-            progUI.color = quest.completed ? new Color(0.5f, 1f, 0.5f) : new Color(0.8f, 0.8f, 0.8f);
-            var progRT = progUI.GetComponent<RectTransform>();
-            progRT.anchoredPosition = new Vector2(-300, yOffset);
-            progRT.sizeDelta = new Vector2(600, 32);
-            yOffset -= 38f;
+        // Pill badge background
+        var pillBadgeGO = new GameObject("PillBadge"); pillBadgeGO.transform.SetParent(rewColGO.transform, false);
+        var pillBadgeImg = pillBadgeGO.AddComponent<Image>();
+        pillBadgeImg.sprite = MakeRoundedRectSprite(138, 60, 30);
+        pillBadgeImg.color  = done ? new Color(0.10f,0.40f,0.18f) : new Color(0.10f,0.24f,0.58f);
+        var pillBadgeRT = pillBadgeGO.GetComponent<RectTransform>();
+        pillBadgeRT.anchorMin = pillBadgeRT.anchorMax = pillBadgeRT.pivot = new Vector2(0.5f, 1f);
+        pillBadgeRT.sizeDelta = new Vector2(127f, 64f);
+        pillBadgeRT.anchoredPosition = new Vector2(0f, -12f);
 
-            // Progress bar track
-            var trackGO = new GameObject($"Q{idx}_Track");
-            trackGO.transform.SetParent(_questContentRoot, false);
-            trackGO.AddComponent<Image>().color = new Color(0.15f, 0.15f, 0.15f, 0.6f);
-            var trackRT = trackGO.GetComponent<RectTransform>();
-            trackRT.anchoredPosition = new Vector2(0, yOffset);
-            trackRT.sizeDelta = new Vector2(600, 22);
+        // Pill sprite inside badge
+        if (pillSpr != null)
+        {
+            var pGO = new GameObject("PillIcon"); pGO.transform.SetParent(pillBadgeGO.transform, false);
+            var pImg = pGO.AddComponent<Image>(); pImg.sprite = pillSpr; pImg.preserveAspect = true; pImg.color = Color.white;
+            var pRT = pGO.GetComponent<RectTransform>();
+            pRT.anchorMin = pRT.anchorMax = pRT.pivot = new Vector2(0.5f, 0.5f);
+            pRT.sizeDelta = new Vector2(48f, 48f); pRT.anchoredPosition = Vector2.zero;
+        }
 
-            // Progress bar fill
-            float pct = quest.targetValue > 0 ? Mathf.Clamp01((float)quest.currentProgress / quest.targetValue) : 0f;
-            var fillGO = new GameObject($"Q{idx}_Fill");
-            fillGO.transform.SetParent(trackGO.transform, false);
-            fillGO.AddComponent<Image>().color = quest.completed ? new Color(0.2f, 0.9f, 0.3f) : new Color(0.2f, 0.55f, 0.9f);
-            var fillRT = fillGO.GetComponent<RectTransform>();
-            fillRT.anchorMin = new Vector2(0f, 0f); fillRT.anchorMax = new Vector2(0f, 1f);
-            fillRT.pivot = new Vector2(0f, 0.5f);
-            fillRT.offsetMin = fillRT.offsetMax = Vector2.zero;
-            fillRT.sizeDelta = new Vector2(600 * pct, 0);
+        // Reward amount "+100"
+        var rewAmtGO = new GameObject("RewardAmt"); rewAmtGO.transform.SetParent(rewColGO.transform, false);
+        var rewAmt = rewAmtGO.AddComponent<TextMeshProUGUI>();
+        rewAmt.text = $"+{quest.rewardCoins}";
+        rewAmt.fontSize = 39f; rewAmt.fontStyle = FontStyles.Bold;
+        rewAmt.color = new Color(1f, 0.88f, 0.15f);
+        rewAmt.alignment = TextAlignmentOptions.Center;
+        var rewAmtRT = rewAmtGO.GetComponent<RectTransform>();
+        rewAmtRT.anchorMin = new Vector2(0f, 0.22f); rewAmtRT.anchorMax = new Vector2(1f, 0.56f);
+        rewAmtRT.offsetMin = rewAmtRT.offsetMax = Vector2.zero;
 
-            yOffset -= 46f;
+        // "coins" label
+        var coinsGO = new GameObject("CoinsLbl"); coinsGO.transform.SetParent(rewColGO.transform, false);
+        var coinsTxt = coinsGO.AddComponent<TextMeshProUGUI>();
+        coinsTxt.text = "coins"; coinsTxt.fontSize = 22f;
+        coinsTxt.color = new Color(1f, 0.82f, 0.40f, 0.85f);
+        coinsTxt.alignment = TextAlignmentOptions.Center;
+        var coinsRT = coinsGO.GetComponent<RectTransform>();
+        coinsRT.anchorMin = new Vector2(0f, 0.04f); coinsRT.anchorMax = new Vector2(1f, 0.24f);
+        coinsRT.offsetMin = coinsRT.offsetMax = Vector2.zero;
+
+        // ── CENTER CONTENT ────────────────────────────────────────────────
+        var midGO = new GameObject("Mid"); midGO.transform.SetParent(cardGO.transform, false);
+        var midRT = midGO.AddComponent<RectTransform>();
+        midRT.anchorMin = new Vector2(0f, 0f); midRT.anchorMax = new Vector2(1f, 1f);
+        midRT.offsetMin = new Vector2(iconColW + 9f, 0f);
+        midRT.offsetMax = new Vector2(-(rewColW + 9f), 0f);
+
+        // Quest title
+        var titleGO2 = new GameObject("QTitle"); titleGO2.transform.SetParent(midGO.transform, false);
+        var titleTxt2 = titleGO2.AddComponent<TextMeshProUGUI>();
+        titleTxt2.text = quest.title; titleTxt2.fontSize = 35f; titleTxt2.fontStyle = FontStyles.Bold;
+        titleTxt2.color = done ? new Color(0.78f, 1f, 0.80f) : Color.white;
+        titleTxt2.alignment = TextAlignmentOptions.TopLeft;
+        titleTxt2.textWrappingMode = TextWrappingModes.Normal;
+        var titleRT2 = titleGO2.GetComponent<RectTransform>();
+        titleRT2.anchorMin = new Vector2(0f, 1f); titleRT2.anchorMax = new Vector2(1f, 1f);
+        titleRT2.pivot = new Vector2(0f, 1f);
+        titleRT2.sizeDelta = new Vector2(0f, 92f); titleRT2.anchoredPosition = new Vector2(0f, -18f);
+
+        // Progress text "5 / 10"
+        int cur = done ? quest.targetValue : quest.currentProgress;
+        var progTxtGO = new GameObject("ProgTxt"); progTxtGO.transform.SetParent(midGO.transform, false);
+        var progTxt = progTxtGO.AddComponent<TextMeshProUGUI>();
+        progTxt.text = $"{cur} / {quest.targetValue}";
+        progTxt.fontSize = 25f;
+        progTxt.color = done ? new Color(0.55f, 1f, 0.60f, 0.80f) : new Color(1f,1f,1f,0.50f);
+        progTxt.alignment = TextAlignmentOptions.TopLeft;
+        var progTxtRT = progTxtGO.GetComponent<RectTransform>();
+        progTxtRT.anchorMin = new Vector2(0f, 1f); progTxtRT.anchorMax = new Vector2(1f, 1f);
+        progTxtRT.pivot = new Vector2(0f, 1f);
+        progTxtRT.sizeDelta = new Vector2(0f, 32f); progTxtRT.anchoredPosition = new Vector2(0f, -115f);
+
+        // Progress bar — LIGHT track so it's visible on dark card
+        var trackGO = new GameObject("Track"); trackGO.transform.SetParent(midGO.transform, false);
+        var trackImg = trackGO.AddComponent<Image>();
+        trackImg.sprite = MakeRoundedRectSprite(690, 18, 9);
+        trackImg.color  = new Color(1f, 1f, 1f, 0.15f); // light track, visible on dark bg
+        var trackRT = trackGO.GetComponent<RectTransform>();
+        trackRT.anchorMin = new Vector2(0f, 0f); trackRT.anchorMax = new Vector2(1f, 0f);
+        trackRT.pivot = new Vector2(0.5f, 0f);
+        trackRT.sizeDelta = new Vector2(-5f, 18f); trackRT.anchoredPosition = new Vector2(0f, 46f);
+
+        float pct = done ? 1f : (quest.targetValue > 0 ? Mathf.Clamp01((float)quest.currentProgress / quest.targetValue) : 0f);
+        var fillGO = new GameObject("Fill"); fillGO.transform.SetParent(trackGO.transform, false);
+        var fillImg = fillGO.AddComponent<Image>();
+        fillImg.sprite = MakeRoundedRectSprite(690, 18, 9);
+        fillImg.color  = done ? new Color(0.18f, 0.90f, 0.38f) : new Color(0.25f, 0.62f, 1.00f);
+        var fillRT = fillGO.GetComponent<RectTransform>();
+        fillRT.anchorMin = new Vector2(0f, 0f); fillRT.anchorMax = new Vector2(pct, 1f);
+        fillRT.offsetMin = fillRT.offsetMax = Vector2.zero;
+
+        // ── COMPLETED BANNER ──────────────────────────────────────────────
+        if (done)
+        {
+            var banGO = new GameObject("CompletedBanner"); banGO.transform.SetParent(cardGO.transform, false);
+            var banImg = banGO.AddComponent<Image>();
+            banImg.sprite = MakeRoundedRectSprite(1150, 51, 0); // flat strip at bottom
+            banImg.color  = new Color(0.10f, 0.50f, 0.20f, 1f);
+            var banRT = banGO.GetComponent<RectTransform>();
+            banRT.anchorMin = new Vector2(0f, 0f); banRT.anchorMax = new Vector2(1f, 0f);
+            banRT.pivot = new Vector2(0.5f, 0f);
+            banRT.sizeDelta = new Vector2(0f, 51f); banRT.anchoredPosition = Vector2.zero;
+
+            var banTxtGO = new GameObject("BanTxt"); banTxtGO.transform.SetParent(banGO.transform, false);
+            var banTxt = banTxtGO.AddComponent<TextMeshProUGUI>();
+            banTxt.text = "COMPLETED  -  Reward Claimed";
+            banTxt.fontSize = 25f; banTxt.fontStyle = FontStyles.Bold;
+            banTxt.color = new Color(0.72f, 1f, 0.76f); banTxt.alignment = TextAlignmentOptions.Center;
+            var banTxtRT = banTxtGO.GetComponent<RectTransform>();
+            banTxtRT.anchorMin = Vector2.zero; banTxtRT.anchorMax = Vector2.one;
+            banTxtRT.offsetMin = banTxtRT.offsetMax = Vector2.zero;
         }
     }
 
-    // Bring overlay and panel to the very front so they render above game-over panel
     darkOverlay.transform.SetAsLastSibling();
     dailyQuestPanel.transform.SetAsLastSibling();
-    // Quest button must still be clickable to close — keep it above overlay
-    if (questButtonGO != null) questButtonGO.transform.SetAsLastSibling();
-
     dailyQuestPanel.SetActive(true);
     darkOverlay.SetActive(true);
     isQuestPanelOpen = true;
+
+    if (_questTimerCoroutine != null) StopCoroutine(_questTimerCoroutine);
+    _questTimerCoroutine = StartCoroutine(QuestTimerRoutine());
 }
+
+System.Collections.IEnumerator QuestTimerRoutine()
+{
+    while (isQuestPanelOpen && _questTimerText != null)
+    {
+        // Time until next midnight (local)
+        System.DateTime now   = System.DateTime.Now;
+        System.DateTime reset = now.Date.AddDays(1);
+        System.TimeSpan left  = reset - now;
+        _questTimerText.text  = $"Quests reset in  {(int)left.TotalHours:D2}h  {left.Minutes:D2}m  {left.Seconds:D2}s";
+        yield return new WaitForSeconds(1f);
+    }
+}
+
+
 
 void CloseDailyQuests()
 {
@@ -3299,6 +3921,10 @@ void CloseDailyQuests()
     dailyQuestPanel.SetActive(false);
     darkOverlay.SetActive(false);
     isQuestPanelOpen = false;
+    if (_questTimerCoroutine != null) { StopCoroutine(_questTimerCoroutine); _questTimerCoroutine = null; }
+
+    // Restore Firebase canvas
+    if (_hiddenFirebaseCanvas != null) { _hiddenFirebaseCanvas.SetActive(true); _hiddenFirebaseCanvas = null; }
 }
 
 // ── POWER-UP SPAWN ───────────────────────────────────────────────────────

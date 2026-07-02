@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 5d6c4d8d941054a29acc29613c6ec85f
+guid: 7281bba8764da4fe3a4fe31770d206a6
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 2311008343756031843
-    second: Medal_2_0
+      213: -4423524739251770109
+    second: edited-photo (2)_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -113,13 +113,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: Medal_2_0
+      name: edited-photo (2)_0
       rect:
         serializedVersion: 2
-        x: 0
-        y: 167
-        width: 781
-        height: 788
+        x: 11
+        y: 21
+        width: 354
+        height: 470
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -128,8 +128,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 367ca8a28d9521020800000000000000
-      internalID: 2311008343756031843
+      spriteID: 30deebdbfab7c92c0800000000000000
+      internalID: -4423524739251770109
       vertices: []
       indices: 
       edges: []
@@ -148,7 +148,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      Medal_2_0: 2311008343756031843
+      edited-photo (2)_0: -4423524739251770109
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

@@ -95,9 +95,17 @@ public class ParallaxBackgroundManager : MonoBehaviour
         Camera cam = Camera.main;
         float camHalfW = cam.orthographicSize * cam.aspect;
 
+        // Keep background Y locked to camera center so it survives any camera Y offset
+        float targetBgY = cam.transform.position.y;
+
         foreach (var layer in layers)
         {
             if (layer.bg1 == null || layer.bg2 == null) continue;
+
+            // Snap Y to camera center every frame — handles camera repositioning at runtime
+            layer.bgY = targetBgY;
+            var p1 = layer.bg1.transform.position; layer.bg1.transform.position = new Vector3(p1.x, targetBgY, p1.z);
+            var p2 = layer.bg2.transform.position; layer.bg2.transform.position = new Vector3(p2.x, targetBgY, p2.z);
 
             float move = layer.speed * Time.deltaTime;
             layer.bg1.transform.position += Vector3.left * move;

@@ -602,6 +602,7 @@ MonoBehaviour:
   playerSadSprite: {fileID: -4521372385968863873, guid: a382b2bb6f93c4b58bc60cfd19e348df, type: 3}
   playerSprite: {fileID: -6497974143940400319, guid: bbe1fe21d7c1749ac9c8f27eaf0fce44, type: 3}
   Score: 0
+  CoinsThisRun: 0
   minGap: 2.8
   maxGap: 3.6
   easyStartGap: 3.2
@@ -610,15 +611,15 @@ MonoBehaviour:
   bubbleSpawner: {fileID: 1327399690}
   CurrentState: 0
   topSprites:
-  - {fileID: 3844459544860527931, guid: 8333c8ab5823947638db5382c9db3f10, type: 3}
-  - {fileID: 3844459544860527931, guid: 8333c8ab5823947638db5382c9db3f10, type: 3}
-  - {fileID: 5856168957114103511, guid: c857829b8d8a04b42b806d2fd115d8e4, type: 3}
-  - {fileID: 7111011491574178245, guid: 9f8eb7f1a15c44579a67858a3abe1f2b, type: 3}
+  - {fileID: -6163763369887206417, guid: 7c3d1902f29b64f4c8311c984f2cb68a, type: 3}
+  - {fileID: -6163763369887206417, guid: 7c3d1902f29b64f4c8311c984f2cb68a, type: 3}
+  - {fileID: -6163763369887206417, guid: 7c3d1902f29b64f4c8311c984f2cb68a, type: 3}
+  - {fileID: -6163763369887206417, guid: 7c3d1902f29b64f4c8311c984f2cb68a, type: 3}
   bottomSprites:
-  - {fileID: 792871550482376353, guid: c320fd85fa156458b879f64d7a49fe16, type: 3}
-  - {fileID: 7414096828054547666, guid: 8c075b54d15f049bdb30d0e6385c648b, type: 3}
-  - {fileID: 7111011491574178245, guid: 9f8eb7f1a15c44579a67858a3abe1f2b, type: 3}
-  - {fileID: 3511837182696822381, guid: 6e50be0938bcd4c3093dbcf321a33004, type: 3}
+  - {fileID: -7939292549525882607, guid: befdfb07c6ae745ec97a5ddd8882fc60, type: 3}
+  - {fileID: -7939292549525882607, guid: befdfb07c6ae745ec97a5ddd8882fc60, type: 3}
+  - {fileID: -7939292549525882607, guid: befdfb07c6ae745ec97a5ddd8882fc60, type: 3}
+  - {fileID: -7939292549525882607, guid: befdfb07c6ae745ec97a5ddd8882fc60, type: 3}
   backgroundSprite: {fileID: 0}
   tmpFont: {fileID: 0}
   pipeSpawnX: 8
@@ -866,7 +867,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ParallaxBackgroundManager
   layers:
-  - sprite: {fileID: 8823566306153395226, guid: e78ac80b7f8104089bfe51e134c416b3, type: 3}
+  - sprite: {fileID: 4756960137985094783, guid: 1ee3bd7bf4248455595bbbbe0b3bb6f9, type: 3}
     speed: 1.5
     zPosition: 10
     bg1: {fileID: 0}

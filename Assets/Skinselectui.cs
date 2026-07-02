@@ -2,27 +2,22 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
+/// Skin shop — large featured card + 2 peek cards + bottom grid selector.
+/// Layout: Header | FeaturedArea (main card + peek cards) | Grid (2×3 thumbnails)
 public class SkinSelectUI : MonoBehaviour
 {
+    // ── Singleton ─────────────────────────────────────────────────────────────
     static SkinSelectUI _instance;
-    GameObject _panel;
-    TextMeshProUGUI _coinLabel;
-    GameObject[] _cards = new GameObject[6];
-    bool _built;
 
-    void Awake()
-    {
-        if (_instance != null) { Destroy(gameObject); return; }
-        _instance = this;
-    }
-
+    // ── Public API ────────────────────────────────────────────────────────────
     public static void Show()
     {
         if (_instance == null) return;
         _instance.BuildIfNeeded();
         _instance._panel.SetActive(true);
         _instance._panel.transform.SetAsLastSibling();
-        _instance.Refresh();
+        _instance._selectedIdx = SkinManager.GetSelectedSkin();
+        _instance.RefreshAll();
     }
 
     public static void Hide()
@@ -31,438 +26,627 @@ public class SkinSelectUI : MonoBehaviour
             _instance._panel.SetActive(false);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────
-
-    RectTransform Rect(GameObject go, Vector2 size, Vector2 anchoredPos,
-        Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot)
+    // ── Rarity colours ────────────────────────────────────────────────────────
+    static readonly Color[] RarityCol =
     {
-        RectTransform rt = go.GetComponent<RectTransform>();
-        if (rt == null) rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = anchorMin; rt.anchorMax = anchorMax;
-        rt.pivot = pivot; rt.sizeDelta = size;
-        rt.anchoredPosition = anchoredPos;
-        return rt;
+        new Color(0.00f, 0.82f, 1.00f), // Common    – cyan
+        new Color(0.00f, 0.82f, 1.00f), // Common    – cyan
+        new Color(0.60f, 0.28f, 1.00f), // Rare      – purple
+        new Color(0.60f, 0.28f, 1.00f), // Rare      – purple
+        new Color(1.00f, 0.28f, 0.63f), // Epic      – pink
+        new Color(1.00f, 0.84f, 0.00f), // Legendary – gold
+    };
+
+    const int N = 6; // skin count
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    Canvas          _canvas;
+    GameObject      _panel;
+    bool            _built;
+    int             _selectedIdx;
+
+    // Header
+    TextMeshProUGUI _coinTxt;
+
+    // Main featured card
+    Image           _mainBorder;
+    Image           _mainFishImg;
+    TextMeshProUGUI _mainRarityTxt;
+    Image           _mainRarityBg;
+    TextMeshProUGUI _mainNameTxt;
+    Image           _actionBtnImg;
+    TextMeshProUGUI _actionBtnTxt;
+
+    // Peek cards (index 0 = nearer, index 1 = further)
+    Image[]           _peekBorder   = new Image[2];
+    Image[]           _peekFishImg  = new Image[2];
+    TextMeshProUGUI[] _peekNameTxt  = new TextMeshProUGUI[2];
+    TextMeshProUGUI[] _peekRarTxt   = new TextMeshProUGUI[2];
+    Image[]           _peekLockDim  = new Image[2];
+    int[]             _peekSkinIdx  = new int[2];
+
+    // Grid
+    Image[]           _cellBorder   = new Image[N];
+    Image[]           _cellFishImg  = new Image[N];
+    Image[]           _cellLockDim  = new Image[N];
+    Image[]           _cellSelRing  = new Image[N];
+
+    // ── Unity lifecycle ───────────────────────────────────────────────────────
+    void Awake()
+    {
+        if (_instance != null) { Destroy(gameObject); return; }
+        _instance = this;
+        _canvas = GetComponentInParent<Canvas>();
+        if (_canvas == null) _canvas = FindFirstObjectByType<Canvas>();
     }
 
-    // Anchor-stretch helper (fills parent with optional margin)
-    void Stretch(GameObject go, float l=0,float r=0,float t=0,float b=0)
-    {
-        RectTransform rt = go.GetComponent<RectTransform>();
-        if (rt == null) rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-        rt.offsetMin = new Vector2(l, b);
-        rt.offsetMax = new Vector2(-r, -t);
-    }
-
-    TextMeshProUGUI MakeLabel(Transform parent, string name, string text,
-        TMP_FontAsset font, float fontSize, Color color,
-        Vector2 size, Vector2 pos,
-        TextAlignmentOptions align = TextAlignmentOptions.Center)
-    {
-        GameObject go = new GameObject(name);
-        go.transform.SetParent(parent, false);
-        TextMeshProUGUI t = go.AddComponent<TextMeshProUGUI>();
-        if (font != null) t.font = font;
-        t.text = text; t.fontSize = fontSize; t.color = color;
-        t.alignment = align; t.enableWordWrapping = false;
-        t.overflowMode = TextOverflowModes.Ellipsis;
-        Rect(go, size, pos,
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-        return t;
-    }
-
+    // ── Build ─────────────────────────────────────────────────────────────────
     void BuildIfNeeded()
     {
         if (_built) return;
+
+        // Resolve canvas here rather than in Awake — guarantees it exists at build time
+        if (_canvas == null) _canvas = GetComponentInParent<Canvas>();
+        if (_canvas == null) _canvas = FindFirstObjectByType<Canvas>();
+        if (_canvas == null)
+        {
+            Debug.LogError("[SkinSelectUI] No Canvas found in scene — cannot build skin UI");
+            return;
+        }
+
         _built = true;
-
-        Canvas cv = FindFirstObjectByType<Canvas>();
-        if (cv == null) return;
-        TMP_FontAsset font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
-
-        float sw = Screen.width;
-        float sh = Screen.height;
-
-        // ── Fullscreen backdrop ───────────────────────────────────────
         _panel = new GameObject("SkinSelectPanel");
-        _panel.transform.SetParent(cv.transform, false);
-        _panel.AddComponent<Image>().color = new Color(0.05f, 0.55f, 0.75f, 0.97f);
-        Stretch(_panel);
+        _panel.transform.SetParent(_canvas.transform, false);
 
-        // ── Outer card (90% wide, 82% tall, centred) ─────────────────
-        float CW = sw * 0.90f;
-        float CH = sh * 0.82f;
+        var panelImg = _panel.AddComponent<Image>();
+        panelImg.color = new Color(0.01f, 0.05f, 0.16f, 1.00f); // fully opaque — no game UI bleed
+        Stretch(_panel.GetComponent<RectTransform>());
 
-        GameObject card = new GameObject("Card");
-        card.transform.SetParent(_panel.transform, false);
-        card.AddComponent<Image>().color = new Color(0.04f, 0.45f, 0.65f, 0.95f);
-        Rect(card, new Vector2(CW,CH), Vector2.zero,
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-
-        // ── Layout constants (top-to-bottom anchors inside card) ──────
-        // Title bar  : top 10 %
-        // Coin row   : 10–17 %
-        // Grid row 1 : 17–55 %
-        // Grid row 2 : 55–90 %
-        // Close btn  : 90–100 %
-
-        float titleH  = CH * 0.10f;
-        float coinH   = CH * 0.09f;
-        float gridH   = CH * 0.34f;
-        float closeH  = CH * 0.10f;
-
-        float top     = CH * 0.5f;    // top edge of card in local space
-
-        // ── Title bar ────────────────────────────────────────────────
-        float titleY = top - titleH * 0.5f;
-        GameObject titleBar = new GameObject("TitleBar");
-        titleBar.transform.SetParent(card.transform, false);
-        // Rounded title bar
-        Image titleImg = titleBar.AddComponent<Image>();
-        titleImg.sprite = MakeRoundedRectSprite(512, 128, 40);
-        titleImg.type = Image.Type.Simple;
-        titleImg.color = new Color(0.02f, 0.25f, 0.45f, 1f);
-        Rect(titleBar, new Vector2(CW * 0.92f, titleH), new Vector2(0, titleY),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-        MakeLabel(titleBar.transform, "T", "🐟  CHOOSE YOUR FISH", font, sh*0.030f,
-            new Color(1f,0.95f,0.35f), new Vector2(CW * 0.92f, titleH), Vector2.zero);
-
-        // ── Coin pill ────────────────────────────────────────────────
-        float coinY  = top - titleH - coinH * 0.5f;
-        float pillW  = CW * 0.38f;
-        float pillH  = coinH * 0.70f;
-        float icoSz  = pillH * 0.80f;
-
-        // Shadow behind pill
-        GameObject pillShadow = new GameObject("PillShadow");
-        pillShadow.transform.SetParent(card.transform, false);
-        Image pillShadowImg = pillShadow.AddComponent<Image>();
-        pillShadowImg.sprite = MakeRoundedRectSprite(256, 64, 28);
-        pillShadowImg.type = Image.Type.Simple;
-        pillShadowImg.color = new Color(0f, 0f, 0f, 0.3f);
-        Rect(pillShadow, new Vector2(pillW + 6f, pillH + 6f), new Vector2(2f, coinY - 3f),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-
-        // Rounded coin pill
-        GameObject pill = new GameObject("Pill");
-        pill.transform.SetParent(card.transform, false);
-        Image pillImg = pill.AddComponent<Image>();
-        pillImg.sprite = MakeRoundedRectSprite(256, 64, 28);
-        pillImg.type = Image.Type.Simple;
-        pillImg.color = new Color(0.02f, 0.25f, 0.45f, 0.98f);
-        Rect(pill, new Vector2(pillW,pillH), new Vector2(0,coinY),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-
-        // Coin sprite — anchored to left of pill
-        GameObject icoGO = new GameObject("Ico");
-        icoGO.transform.SetParent(pill.transform, false);
-        Image icoImg = icoGO.AddComponent<Image>();
-        Sprite coinSpr = Resources.Load<Sprite>("Coin");
-        if (coinSpr!=null){ icoImg.sprite=coinSpr; icoImg.color=Color.white; }
-        else icoImg.color = new Color(1f,0.82f,0.1f);
-        Rect(icoGO, new Vector2(icoSz,icoSz), new Vector2(-pillW*0.5f+icoSz*0.6f, 0),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-
-        // Coin number — right of icon
-        TextMeshProUGUI coinTxt = MakeLabel(pill.transform, "Coins", "0", font,
-            sh*0.027f, new Color(1f,0.88f,0.15f),
-            new Vector2(pillW*0.55f, pillH),
-            new Vector2(icoSz*0.7f, 0),
-            TextAlignmentOptions.Left);
-        _coinLabel = coinTxt;
-
-        // ── Skin grid — 3 rows × 2 cols for 6 skins ─────────────────
-        float col0X = -CW * 0.255f;
-        float col1X =  CW * 0.255f;
-        float gridH3 = CH * 0.24f; // height per row — 3 rows fit in card
-        float row0Y = top - titleH - coinH - gridH3 * 0.5f;
-        float row1Y = row0Y - gridH3;
-        float row2Y = row1Y - gridH3;
-
-        Vector2[] gridPos = {
-            new Vector2(col0X, row0Y), new Vector2(col1X, row0Y),
-            new Vector2(col0X, row1Y), new Vector2(col1X, row1Y),
-            new Vector2(col0X, row2Y), new Vector2(col1X, row2Y)
-        };
-
-        Color[] accents = {
-            new Color(1.00f, 0.65f, 0.05f),  // Default     — orange
-            new Color(0.30f, 0.75f, 0.95f),  // Whale       — ocean blue
-            new Color(0.15f, 0.80f, 0.30f),  // Shark       — ocean grey-green
-            new Color(0.95f, 0.75f, 0.10f),  // Dragon Fish — legendary gold
-            new Color(0.95f, 0.40f, 0.05f),  // Dragon Fish  — fiery orange-red
-            new Color(0.70f, 0.20f, 1.00f)   // Anglerfish  — bright purple glow
-        };
-        Color[] bgs = {
-            new Color(0.28f, 0.16f, 0.02f, 1f),  // Default     — dark orange
-            new Color(0.02f, 0.18f, 0.30f, 1f),  // Whale       — deep ocean
-            new Color(0.02f, 0.20f, 0.08f, 1f),  // Shark       — dark ocean green
-            new Color(0.25f, 0.12f, 0.00f, 1f),  // Dragon Fish — dark crimson
-            new Color(0.28f, 0.08f, 0.01f, 1f),  // Dragon Fish  — dark fiery brown
-            new Color(0.20f, 0.75f, 0.35f, 1f)   // Anglerfish  — light green
-        };
-
-        // Resize cards to fit 3 rows
-        float cardW = CW * 0.43f;
-        float cardH = gridH3 * 0.88f;
-
-        // Resize _cards array for 6 skins
-        _cards = new GameObject[6];
-
-        for (int i = 0; i < 6; i++)
-        {
-            int idx = i;
-            _cards[i] = MakeSkinCard(card.transform, idx,
-                gridPos[i], cardW, cardH, accents[i], bgs[i], font);
-            Debug.Log($"Skin card {i} created at pos={gridPos[i]} size={cardW}x{cardH}");
-        }
-
-        // ── Close button ─────────────────────────────────────────────
-        float closeBtnY = -CH*0.5f + closeH*0.55f;
-        float closeBtnW = CW * 0.50f;
-        float closeBtnH = closeH * 0.75f;
-
-        // Shadow
-        GameObject closeShadow = new GameObject("CloseShadow");
-        closeShadow.transform.SetParent(card.transform, false);
-        Image shadowImg = closeShadow.AddComponent<Image>();
-        shadowImg.sprite = MakeRoundedRectSprite(256, 128, 32);
-        shadowImg.type = Image.Type.Simple;
-        shadowImg.color = new Color(0f, 0f, 0f, 0.4f);
-        Rect(closeShadow, new Vector2(closeBtnW + 6f, closeBtnH + 6f),
-            new Vector2(2f, closeBtnY - 3f),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-
-        // Rounded close button
-        GameObject closeGO = new GameObject("CloseBtn");
-        closeGO.transform.SetParent(card.transform, false);
-        Image closeImg = closeGO.AddComponent<Image>();
-        closeImg.sprite = MakeRoundedRectSprite(256, 128, 32);
-        closeImg.type = Image.Type.Simple;
-        closeImg.color = new Color(0.85f, 0.15f, 0.15f, 1f);
-        closeGO.AddComponent<Button>().onClick.AddListener(Hide);
-        Rect(closeGO, new Vector2(closeBtnW, closeBtnH),
-            new Vector2(0, closeBtnY),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-        MakeLabel(closeGO.transform, "L", "✕  CLOSE", font, sh*0.025f,
-            Color.white,
-            new Vector2(closeBtnW, closeBtnH), Vector2.zero);
-
-        _panel.SetActive(false);
+        BuildHeader(_panel.transform);
+        BuildFeaturedArea(_panel.transform);
+        BuildGrid(_panel.transform);
     }
 
-    // ── Individual skin card ──────────────────────────────────────────────
-    Sprite MakeRoundedRectSprite(int width, int height, int radius)
+    // ── Header ────────────────────────────────────────────────────────────────
+    void BuildHeader(Transform parent)
     {
-        Texture2D tex = new Texture2D(width, height);
-        Color[] pixels = new Color[width * height];
-        for (int y = 0; y < height; y++)
-        for (int x = 0; x < width; x++)
-        {
-            // Check corners
-            int cx = Mathf.Clamp(x, radius, width - radius);
-            int cy = Mathf.Clamp(y, radius, height - radius);
-            float dist = Vector2.Distance(new Vector2(x, y), new Vector2(cx, cy));
-            pixels[y * width + x] = dist <= radius ? Color.white : Color.clear;
-        }
-        tex.SetPixels(pixels);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, width, height), new Vector2(0.5f, 0.5f));
+        var hdr   = MakeGO("Header", parent);
+        var hdrRT = hdr.AddComponent<RectTransform>(); // container — no Image, needs explicit RT
+        hdrRT.anchorMin = new Vector2(0f, 1f); hdrRT.anchorMax = new Vector2(1f, 1f);
+        hdrRT.pivot = new Vector2(0.5f, 1f);
+        hdrRT.sizeDelta = new Vector2(0f, 145f);
+        hdrRT.anchoredPosition = Vector2.zero;
+
+        // Back button
+        var backGO = MakeGO("Back", hdr.transform);
+        var backImg = backGO.AddComponent<Image>();
+        backImg.sprite = RoundedRect(120, 90, 28);
+        backImg.type   = Image.Type.Simple;
+        backImg.color  = new Color(0.08f, 0.18f, 0.42f, 0.90f);
+        var backBtn = backGO.AddComponent<Button>();
+        backBtn.onClick.AddListener(() => Hide());
+        var backRT = backGO.GetComponent<RectTransform>();
+        backRT.anchorMin = backRT.anchorMax = new Vector2(0f, 0.5f);
+        backRT.pivot = new Vector2(0f, 0.5f);
+        backRT.sizeDelta = new Vector2(120f, 90f);
+        backRT.anchoredPosition = new Vector2(30f, 0f);
+        Lbl(backGO.transform, "<b><</b>", 52f, Color.white);
+
+        // Title
+        var titleGO = MakeGO("Title", hdr.transform);
+        var titleRT = titleGO.AddComponent<RectTransform>();
+        titleRT.anchorMin = new Vector2(0.15f, 0f); titleRT.anchorMax = new Vector2(0.85f, 1f);
+        titleRT.offsetMin = titleRT.offsetMax = Vector2.zero;
+        var titleTxt = titleGO.AddComponent<TextMeshProUGUI>();
+        titleTxt.text = "FISH SKINS"; titleTxt.fontSize = 54f;
+        titleTxt.fontStyle = FontStyles.Bold; titleTxt.color = Color.white;
+        titleTxt.alignment = TextAlignmentOptions.Center;
+        titleTxt.overflowMode = TextOverflowModes.Overflow;
+
+        // Coin pill
+        var coinGO = MakeGO("Coins", hdr.transform);
+        var coinImg = coinGO.AddComponent<Image>();
+        coinImg.sprite = RoundedRect(240, 72, 36);
+        coinImg.type   = Image.Type.Simple;
+        coinImg.color  = new Color(0.12f, 0.09f, 0.02f, 0.95f);
+        var coinRT = coinGO.GetComponent<RectTransform>();
+        coinRT.anchorMin = coinRT.anchorMax = new Vector2(1f, 0.5f);
+        coinRT.pivot = new Vector2(1f, 0.5f);
+        coinRT.sizeDelta = new Vector2(240f, 72f);
+        coinRT.anchoredPosition = new Vector2(-25f, 0f);
+        _coinTxt = Lbl(coinGO.transform, "0", 36f, new Color(1f, 0.92f, 0.18f));
+        _coinTxt.alignment = TextAlignmentOptions.Center;
     }
 
-    Sprite MakeCircleSprite(int resolution = 128)
+    // ── Featured area ─────────────────────────────────────────────────────────
+    void BuildFeaturedArea(Transform parent)
     {
-        Texture2D tex = new Texture2D(resolution, resolution);
-        Color[] pixels = new Color[resolution * resolution];
-        Vector2 center = new Vector2(resolution / 2f, resolution / 2f);
-        float radius = resolution / 2f;
-        for (int y = 0; y < resolution; y++)
-        for (int x = 0; x < resolution; x++)
-        {
-            float dist = Vector2.Distance(new Vector2(x, y), center);
-            pixels[y * resolution + x] = dist <= radius ? Color.white : Color.clear;
-        }
-        tex.SetPixels(pixels);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, resolution, resolution), new Vector2(0.5f, 0.5f));
+        var area = MakeGO("Featured", parent);
+        var aRT  = area.AddComponent<RectTransform>(); // first and only RT add
+        // Occupies roughly middle 45% of screen height, below header
+        aRT.anchorMin = new Vector2(0f, 0.38f); aRT.anchorMax = new Vector2(1f, 0.93f);
+        aRT.offsetMin = aRT.offsetMax = Vector2.zero;
+
+        const float MW = 540f, MH = 730f;
+        const float P1W = 440f, P1H = 587f;
+        const float P2W = 350f, P2H = 467f;
+
+        // Add peek cards FIRST so they render behind the main card
+        BuildPeekCard(area.transform, 1, P2W, P2H, new Vector2(270f, -60f));
+        BuildPeekCard(area.transform, 0, P1W, P1H, new Vector2(110f, -25f));
+        BuildMainCard(area.transform, MW, MH, new Vector2(-140f, 0f));
     }
 
-    GameObject MakeSkinCard(Transform parent, int skinId,
-        Vector2 pos, float cw, float ch,
-        Color accent, Color bgCol, TMP_FontAsset font)
+    void BuildMainCard(Transform parent, float w, float h, Vector2 offset)
     {
-        float sh = Screen.height;
-        bool locked = !SkinManager.IsUnlocked(skinId);
+        var card   = MakeGO("MainCard", parent);
+        var cardRT = card.AddComponent<RectTransform>();
+        cardRT.anchorMin = cardRT.anchorMax = cardRT.pivot = new Vector2(0.5f, 0.5f);
+        cardRT.sizeDelta = new Vector2(w, h);
+        cardRT.anchoredPosition = offset;
 
-        // Shadow behind card
-        GameObject shadow = new GameObject("Shadow_"+skinId);
-        shadow.transform.SetParent(parent, false);
-        Image shadowImg = shadow.AddComponent<Image>();
-        shadowImg.sprite = MakeRoundedRectSprite(256, 320, 28);
-        shadowImg.type = Image.Type.Simple;
-        shadowImg.color = new Color(0f, 0f, 0f, 0.4f);
-        Rect(shadow, new Vector2(cw + 6f, ch + 8f), new Vector2(pos.x + 3f, pos.y - 4f),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
+        // Glow border (rarity coloured — rendered behind body)
+        var glowGO  = MakeGO("Glow", card.transform);
+        _mainBorder = glowGO.AddComponent<Image>();
+        _mainBorder.sprite = RoundedRect((int)(w+20), (int)(h+20), 46);
+        _mainBorder.type   = Image.Type.Simple;
+        var glowRT = glowGO.GetComponent<RectTransform>();
+        glowRT.anchorMin = glowRT.anchorMax = glowRT.pivot = new Vector2(0.5f, 0.5f);
+        glowRT.sizeDelta = new Vector2(w+20, h+20); glowRT.anchoredPosition = Vector2.zero;
 
-        // Card with rounded corners
-        GameObject card = new GameObject("SC_"+skinId);
-        card.transform.SetParent(parent, false);
-        Image cardImg = card.AddComponent<Image>();
-        cardImg.sprite = MakeRoundedRectSprite(256, 320, 28);
-        cardImg.type = Image.Type.Simple;
-        cardImg.color = bgCol;
-        Button btn = card.AddComponent<Button>();
-        btn.onClick.AddListener(() => OnSkinCardTapped(skinId));
-        Rect(card, new Vector2(cw, ch), pos,
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
+        // Card body
+        var bodyGO  = MakeGO("Body", card.transform);
+        var bodyImg = bodyGO.AddComponent<Image>();
+        bodyImg.sprite = RoundedRect((int)w, (int)h, 42);
+        bodyImg.type   = Image.Type.Simple;
+        bodyImg.color  = new Color(0.04f, 0.09f, 0.24f, 1f);
+        var bodyRT = bodyGO.GetComponent<RectTransform>();
+        bodyRT.anchorMin = bodyRT.anchorMax = bodyRT.pivot = new Vector2(0.5f, 0.5f);
+        bodyRT.sizeDelta = new Vector2(w, h); bodyRT.anchoredPosition = Vector2.zero;
 
-        // Top accent bar
-        GameObject bar = new GameObject("Bar");
-        bar.transform.SetParent(card.transform, false);
-        Image barImg = bar.AddComponent<Image>();
-        barImg.sprite = MakeRoundedRectSprite(256, 64, 28);
-        barImg.type = Image.Type.Simple;
-        barImg.color = new Color(accent.r, accent.g, accent.b, 0.90f);
-        Rect(bar, new Vector2(cw, ch*0.07f),
-            new Vector2(0, ch*0.5f - ch*0.035f),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
+        // Rarity badge (top-left)
+        var badgeGO  = MakeGO("RarityBadge", card.transform);
+        _mainRarityBg = badgeGO.AddComponent<Image>();
+        _mainRarityBg.sprite = RoundedRect(210, 58, 29);
+        _mainRarityBg.type   = Image.Type.Simple;
+        var badgeRT = badgeGO.GetComponent<RectTransform>();
+        badgeRT.anchorMin = badgeRT.anchorMax = new Vector2(0f, 1f);
+        badgeRT.pivot = new Vector2(0f, 1f);
+        badgeRT.sizeDelta = new Vector2(210f, 58f);
+        badgeRT.anchoredPosition = new Vector2(22f, -22f);
+        _mainRarityTxt = Lbl(badgeGO.transform, "Common", 30f, Color.white);
+        _mainRarityTxt.fontStyle = FontStyles.Bold;
+        _mainRarityTxt.alignment = TextAlignmentOptions.Center;
 
-        // Highlight strip at top
-        GameObject hl = new GameObject("Highlight");
-        hl.transform.SetParent(card.transform, false);
-        Image hlImg = hl.AddComponent<Image>();
-        hlImg.sprite = MakeRoundedRectSprite(256, 64, 28);
-        hlImg.type = Image.Type.Simple;
-        hlImg.color = new Color(1f, 1f, 1f, 0.08f);
-        Rect(hl, new Vector2(cw, ch*0.5f),
-            new Vector2(0, ch*0.25f),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
+        // Fish image (upper portion of card)
+        var fishGO   = MakeGO("Fish", card.transform);
+        _mainFishImg = fishGO.AddComponent<Image>();
+        _mainFishImg.preserveAspect = true; _mainFishImg.raycastTarget = false;
+        var fishRT = fishGO.GetComponent<RectTransform>();
+        fishRT.anchorMin = new Vector2(0.04f, 0.28f); fishRT.anchorMax = new Vector2(0.96f, 0.94f);
+        fishRT.offsetMin = fishRT.offsetMax = Vector2.zero;
+
+        // Skin name
+        var nameGO   = MakeGO("Name", card.transform);
+        _mainNameTxt = nameGO.AddComponent<TextMeshProUGUI>();
+        _mainNameTxt.fontSize  = 50f; _mainNameTxt.fontStyle = FontStyles.Bold;
+        _mainNameTxt.color     = Color.white;
+        _mainNameTxt.alignment = TextAlignmentOptions.Center;
+        _mainNameTxt.overflowMode = TextOverflowModes.Overflow;
+        var nameRT = nameGO.GetComponent<RectTransform>();
+        nameRT.anchorMin = new Vector2(0f, 0.14f); nameRT.anchorMax = new Vector2(1f, 0.28f);
+        nameRT.offsetMin = nameRT.offsetMax = Vector2.zero;
+
+        // Action button
+        var btnGO    = MakeGO("ActionBtn", card.transform);
+        _actionBtnImg = btnGO.AddComponent<Image>();
+        _actionBtnImg.sprite = RoundedRect(400, 105, 44);
+        _actionBtnImg.type   = Image.Type.Simple;
+        var btn = btnGO.AddComponent<Button>();
+        btn.onClick.AddListener(OnActionTapped);
+        var btnRT = btnGO.GetComponent<RectTransform>();
+        btnRT.anchorMin = btnRT.anchorMax = new Vector2(0.5f, 0f);
+        btnRT.pivot = new Vector2(0.5f, 0f);
+        btnRT.sizeDelta = new Vector2(400f, 105f);
+        btnRT.anchoredPosition = new Vector2(0f, 22f);
+        _actionBtnTxt = Lbl(btnGO.transform, "EQUIP", 44f, Color.white);
+        _actionBtnTxt.fontStyle = FontStyles.Bold;
+        _actionBtnTxt.alignment = TextAlignmentOptions.Center;
+    }
+
+    void BuildPeekCard(Transform parent, int pi, float w, float h, Vector2 offset)
+    {
+        var card = MakeGO("Peek" + pi, parent);
+        var cardRT = card.AddComponent<RectTransform>();
+        cardRT.anchorMin = cardRT.anchorMax = cardRT.pivot = new Vector2(0.5f, 0.5f);
+        cardRT.sizeDelta = new Vector2(w, h);
+        cardRT.anchoredPosition = offset;
+
+        // Border
+        var borGO      = MakeGO("Border", card.transform);
+        _peekBorder[pi] = borGO.AddComponent<Image>();
+        _peekBorder[pi].sprite = RoundedRect((int)(w+16), (int)(h+16), 38);
+        _peekBorder[pi].type   = Image.Type.Simple;
+        var borRT = borGO.GetComponent<RectTransform>();
+        borRT.anchorMin = borRT.anchorMax = borRT.pivot = new Vector2(0.5f, 0.5f);
+        borRT.sizeDelta = new Vector2(w+16, h+16); borRT.anchoredPosition = Vector2.zero;
+
+        // Body
+        var bodGO  = MakeGO("Body", card.transform);
+        var bodImg = bodGO.AddComponent<Image>();
+        bodImg.sprite = RoundedRect((int)w, (int)h, 34);
+        bodImg.type   = Image.Type.Simple;
+        bodImg.color  = new Color(0.04f, 0.08f, 0.22f, 0.92f);
+        var bodRT = bodGO.GetComponent<RectTransform>();
+        bodRT.anchorMin = bodRT.anchorMax = bodRT.pivot = new Vector2(0.5f, 0.5f);
+        bodRT.sizeDelta = new Vector2(w, h); bodRT.anchoredPosition = Vector2.zero;
 
         // Fish image
-        string[] names = { "FishDefault", "FishWhale", "FishShark", "FishDragon", "FishPuffer", "FishAnglerfish" };
-        float fishSz = ch * 0.48f;
-        GameObject fishGO = new GameObject("Fish");
-        fishGO.transform.SetParent(card.transform, false);
-        Image fishImg = fishGO.AddComponent<Image>();
-        Sprite sp = Resources.Load<Sprite>(names[skinId]);
-        if (sp != null){ fishImg.sprite = sp; fishImg.preserveAspect = true; fishImg.color = Color.white; }
-        else fishImg.color = accent;
-        Rect(fishGO, new Vector2(fishSz, fishSz),
-            new Vector2(0, ch*0.13f),
-            new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
+        var fishGO      = MakeGO("Fish", card.transform);
+        _peekFishImg[pi] = fishGO.AddComponent<Image>();
+        _peekFishImg[pi].preserveAspect = true; _peekFishImg[pi].raycastTarget = false;
+        var fishRT = fishGO.GetComponent<RectTransform>();
+        fishRT.anchorMin = new Vector2(0.06f, 0.24f); fishRT.anchorMax = new Vector2(0.94f, 0.88f);
+        fishRT.offsetMin = fishRT.offsetMax = Vector2.zero;
 
-        // Name
-        MakeLabel(card.transform, "Name", SkinManager.SkinNames[skinId], font,
-            sh*0.022f, accent,
-            new Vector2(cw-8f, ch*0.22f),
-            new Vector2(0, -ch*0.29f));
+        // Skin name (below fish)
+        var nameGO      = MakeGO("Name", card.transform);
+        _peekNameTxt[pi] = nameGO.AddComponent<TextMeshProUGUI>();
+        _peekNameTxt[pi].fontSize  = 30f; _peekNameTxt[pi].fontStyle = FontStyles.Bold;
+        _peekNameTxt[pi].color     = new Color(0.85f, 0.85f, 0.90f);
+        _peekNameTxt[pi].alignment = TextAlignmentOptions.Center;
+        _peekNameTxt[pi].overflowMode = TextOverflowModes.Overflow;
+        var nameRT = nameGO.GetComponent<RectTransform>();
+        nameRT.anchorMin = new Vector2(0f, 0.06f); nameRT.anchorMax = new Vector2(1f, 0.22f);
+        nameRT.offsetMin = nameRT.offsetMax = Vector2.zero;
 
-        // Cost
-        string costStr = skinId==0 ? "Free" : SkinManager.SkinCosts[skinId]+" coins";
-        MakeLabel(card.transform, "Cost", costStr, font,
-            sh*0.019f, locked ? new Color(0.7f,0.7f,0.7f) : new Color(0.45f,0.90f,0.45f),
-            new Vector2(cw-8f, ch*0.20f),
-            new Vector2(0, -ch*0.42f));
+        // Rarity label (top)
+        var rarGO      = MakeGO("Rarity", card.transform);
+        _peekRarTxt[pi] = rarGO.AddComponent<TextMeshProUGUI>();
+        _peekRarTxt[pi].fontSize  = 22f; _peekRarTxt[pi].fontStyle = FontStyles.Bold;
+        _peekRarTxt[pi].color     = Color.white;
+        _peekRarTxt[pi].alignment = TextAlignmentOptions.Center;
+        _peekRarTxt[pi].overflowMode = TextOverflowModes.Overflow;
+        var rarRT = rarGO.GetComponent<RectTransform>();
+        rarRT.anchorMin = new Vector2(0f, 0.88f); rarRT.anchorMax = new Vector2(1f, 1f);
+        rarRT.offsetMin = rarRT.offsetMax = Vector2.zero;
 
-        MakeLabel(card.transform, "Badge", "Equipped", font,
-            sh*0.019f, new Color(0.2f,0.95f,0.4f),
-            new Vector2(cw-8f, ch*0.20f),
-            new Vector2(0, -ch*0.42f)).gameObject.SetActive(false);
+        // Lock dim overlay
+        var lockGO      = MakeGO("LockDim", card.transform);
+        _peekLockDim[pi] = lockGO.AddComponent<Image>();
+        _peekLockDim[pi].color = new Color(0f, 0f, 0f, 0.58f);
+        _peekLockDim[pi].sprite = RoundedRect((int)w, (int)h, 34);
+        _peekLockDim[pi].type   = Image.Type.Simple;
+        _peekLockDim[pi].raycastTarget = false;
+        var lockRT = lockGO.GetComponent<RectTransform>();
+        lockRT.anchorMin = lockRT.anchorMax = lockRT.pivot = new Vector2(0.5f, 0.5f);
+        lockRT.sizeDelta = new Vector2(w, h); lockRT.anchoredPosition = Vector2.zero;
 
-        // Locked overlay
-        if (locked)
-        {
-            GameObject dim = new GameObject("Dim");
-            dim.transform.SetParent(card.transform, false);
-            Image dimImg = dim.AddComponent<Image>();
-            dimImg.sprite = MakeRoundedRectSprite(256, 320, 28);
-            dimImg.type = Image.Type.Simple;
-            dimImg.color = new Color(0f, 0f, 0f, 0.62f);
-            Stretch(dim);
+        // Lock label inside dim
+        var lockLblTxt = Lbl(lockGO.transform, "LOCKED", 28f, new Color(1f, 1f, 1f, 0.80f));
+        lockLblTxt.fontStyle = FontStyles.Bold;
+        lockLblTxt.alignment = TextAlignmentOptions.Center;
 
-            Sprite lockSpr = Resources.Load<Sprite>("LockIcon");
-            if (lockSpr != null)
-            {
-                GameObject lockGO = new GameObject("LockSprite");
-                lockGO.transform.SetParent(dim.transform, false);
-                Image lockImg = lockGO.AddComponent<Image>();
-                lockImg.sprite = lockSpr;
-                lockImg.color = Color.white;
-                Rect(lockGO, new Vector2(ch*0.20f, ch*0.20f),
-                    new Vector2(0, ch*0.06f),
-                    new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f));
-            }
-            else
-            {
-                MakeLabel(dim.transform, "LockText", "LOCKED", font,
-                    sh*0.024f, Color.white,
-                    new Vector2(cw, ch*0.30f), Vector2.zero);
-            }
-        }
-
-        return card;
+        // Tap to preview
+        int capturedPi = pi;
+        var hitImg = card.AddComponent<Image>(); hitImg.color = Color.clear;
+        var cardBtn = card.AddComponent<Button>();
+        cardBtn.onClick.AddListener(() => SelectFromPeek(capturedPi));
     }
 
-    void OnSkinCardTapped(int skinId)
+    // ── Grid ──────────────────────────────────────────────────────────────────
+    void BuildGrid(Transform parent)
     {
-        if (SkinManager.IsUnlocked(skinId))
-        {
-            SkinManager.SelectSkin(skinId);
-            GameBootstrap gb = FindFirstObjectByType<GameBootstrap>();
-            if (gb != null) gb.ApplySelectedSkin();
-        }
-        else if (SkinManager.TryPurchase(skinId))
-        {
-            SkinManager.SelectSkin(skinId);
-            // Remove dim overlay — skin is now unlocked
-            if (_cards[skinId] != null)
-            {
-                Transform dim = _cards[skinId].transform.Find("Dim");
-                if (dim != null) Destroy(dim.gameObject);
-            }
-            GameBootstrap gb = FindFirstObjectByType<GameBootstrap>();
-            if (gb != null) gb.ApplySelectedSkin();
-        }
-        Refresh();
+        // Grid panel — bottom 37% of screen
+        var gridBgGO  = MakeGO("GridPanel", parent);
+        var gridBgImg = gridBgGO.AddComponent<Image>();
+        gridBgImg.sprite = RoundedRect(1080, 680, 36);
+        gridBgImg.type   = Image.Type.Simple;
+        gridBgImg.color  = new Color(0.03f, 0.07f, 0.20f, 0.88f);
+        var gridBgRT = gridBgGO.GetComponent<RectTransform>();
+        gridBgRT.anchorMin = new Vector2(0f, 0f); gridBgRT.anchorMax = new Vector2(1f, 0.38f);
+        gridBgRT.offsetMin = gridBgRT.offsetMax = Vector2.zero;
+
+        // "SELECT SKIN" label
+        var hdrGO = MakeGO("GridHdr", gridBgGO.transform);
+        var hdrRT = hdrGO.AddComponent<RectTransform>(); // container, needs explicit RT
+        hdrRT.anchorMin = new Vector2(0f, 1f); hdrRT.anchorMax = new Vector2(1f, 1f);
+        hdrRT.pivot = new Vector2(0.5f, 1f);
+        hdrRT.sizeDelta = new Vector2(0f, 60f);
+        hdrRT.anchoredPosition = new Vector2(0f, -6f);
+        var hdrTxt = Lbl(hdrGO.transform, "SELECT SKIN", 30f, new Color(0.65f, 0.70f, 0.85f));
+        hdrTxt.fontStyle = FontStyles.Bold; hdrTxt.alignment = TextAlignmentOptions.Center;
+
+        // Grid container — use GridLayoutGroup for clean auto-layout
+        var gridGO = MakeGO("Grid", gridBgGO.transform);
+        var gridRT = gridGO.AddComponent<RectTransform>(); // container, needs explicit RT
+        gridRT.anchorMin = new Vector2(0f, 0f); gridRT.anchorMax = new Vector2(1f, 1f);
+        gridRT.offsetMin = new Vector2(24f, 12f); gridRT.offsetMax = new Vector2(-24f, -68f);
+
+        var glg = gridGO.AddComponent<GridLayoutGroup>();
+        glg.cellSize       = new Vector2(310f, 255f);
+        glg.spacing        = new Vector2(16f, 14f);
+        glg.constraint     = GridLayoutGroup.Constraint.FixedColumnCount;
+        glg.constraintCount = 3;
+        glg.childAlignment = TextAnchor.MiddleCenter;
+
+        for (int i = 0; i < N; i++)
+            BuildGridCell(gridGO.transform, i);
     }
 
-    void Refresh()
+    void BuildGridCell(Transform parent, int idx)
     {
-        if (_coinLabel != null)
-            _coinLabel.text = SkinManager.GetCoins().ToString();
+        var cell   = MakeGO("Cell_" + idx, parent);
+        var cellRT = cell.AddComponent<RectTransform>(); // GridLayoutGroup sizes this — first RT add
 
-        int sel = SkinManager.GetSelectedSkin();
-        for (int i = 0; i < 6; i++)
+        // Selection ring — added FIRST so it renders behind the rarity border.
+        // Shows as a white outer halo around the colored border when selected.
+        var selGO        = MakeGO("SelRing", cell.transform);
+        _cellSelRing[idx] = selGO.AddComponent<Image>();
+        _cellSelRing[idx].sprite = RoundedRect(320, 250, 32);
+        _cellSelRing[idx].type   = Image.Type.Simple;
+        _cellSelRing[idx].color  = Color.clear; // hidden until selected
+        _cellSelRing[idx].raycastTarget = false;
+        var selRT = selGO.GetComponent<RectTransform>();
+        selRT.anchorMin = selRT.anchorMax = selRT.pivot = new Vector2(0.5f, 0.5f);
+        selRT.sizeDelta = new Vector2(320f, 250f); selRT.anchoredPosition = Vector2.zero;
+
+        // Rarity border
+        var borGO       = MakeGO("Border", cell.transform);
+        _cellBorder[idx] = borGO.AddComponent<Image>();
+        _cellBorder[idx].sprite = RoundedRect(308, 242, 28);
+        _cellBorder[idx].type   = Image.Type.Simple;
+        _cellBorder[idx].color  = RarityCol[idx];
+        _cellBorder[idx].raycastTarget = false;
+        var borRT = borGO.GetComponent<RectTransform>();
+        borRT.anchorMin = borRT.anchorMax = borRT.pivot = new Vector2(0.5f, 0.5f);
+        borRT.sizeDelta = new Vector2(308f, 242f); borRT.anchoredPosition = Vector2.zero;
+
+        // Cell body
+        var bodGO  = MakeGO("Body", cell.transform);
+        var bodImg = bodGO.AddComponent<Image>();
+        bodImg.sprite = RoundedRect(296, 230, 24);
+        bodImg.type   = Image.Type.Simple;
+        bodImg.color  = new Color(0.05f, 0.11f, 0.28f, 1f);
+        var bodRT = bodGO.GetComponent<RectTransform>();
+        bodRT.anchorMin = bodRT.anchorMax = bodRT.pivot = new Vector2(0.5f, 0.5f);
+        bodRT.sizeDelta = new Vector2(296f, 230f); bodRT.anchoredPosition = Vector2.zero;
+
+        // Rarity label bar (top of cell)
+        var rarBgGO  = MakeGO("RarBg", cell.transform);
+        var rarBgImg = rarBgGO.AddComponent<Image>();
+        rarBgImg.sprite = RoundedRect(296, 42, 14);
+        rarBgImg.type   = Image.Type.Simple;
+        rarBgImg.color  = RarityCol[idx];
+        rarBgImg.raycastTarget = false;
+        var rarBgRT = rarBgGO.GetComponent<RectTransform>();
+        rarBgRT.anchorMin = new Vector2(0f, 1f); rarBgRT.anchorMax = new Vector2(1f, 1f);
+        rarBgRT.pivot = new Vector2(0.5f, 1f);
+        rarBgRT.sizeDelta = new Vector2(0f, 42f); rarBgRT.anchoredPosition = Vector2.zero;
+        var rarTxt = Lbl(rarBgGO.transform, SkinManager.Rarities[idx].ToUpper(), 22f, Color.white);
+        rarTxt.fontStyle = FontStyles.Bold; rarTxt.alignment = TextAlignmentOptions.Center;
+
+        // Fish thumbnail
+        var fishGO       = MakeGO("Fish", cell.transform);
+        _cellFishImg[idx] = fishGO.AddComponent<Image>();
+        _cellFishImg[idx].preserveAspect = true; _cellFishImg[idx].raycastTarget = false;
+        Sprite sp = Resources.Load<Sprite>(SkinManager.SkinSprites[idx]);
+        if (sp != null) _cellFishImg[idx].sprite = sp;
+        var fishRT = fishGO.GetComponent<RectTransform>();
+        fishRT.anchorMin = new Vector2(0.08f, 0.22f); fishRT.anchorMax = new Vector2(0.92f, 0.88f);
+        fishRT.offsetMin = fishRT.offsetMax = Vector2.zero;
+
+        // Price / free label (bottom)
+        var priceGO = MakeGO("Price", cell.transform);
+        var priceRT = priceGO.AddComponent<RectTransform>();
+        priceRT.anchorMin = new Vector2(0f, 0f); priceRT.anchorMax = new Vector2(1f, 0f);
+        priceRT.pivot = new Vector2(0.5f, 0f);
+        priceRT.sizeDelta = new Vector2(0f, 38f); priceRT.anchoredPosition = new Vector2(0f, 6f);
+        string priceStr = idx == 0 ? "FREE" : SkinManager.SkinCosts[idx].ToString() + " coins";
+        var priceTxt = Lbl(priceGO.transform, priceStr, 24f, new Color(1f, 0.90f, 0.20f));
+        priceTxt.fontStyle = FontStyles.Bold; priceTxt.alignment = TextAlignmentOptions.Center;
+
+        // Lock dim (shown when locked)
+        var lockGO       = MakeGO("LockDim", cell.transform);
+        _cellLockDim[idx] = lockGO.AddComponent<Image>();
+        _cellLockDim[idx].sprite = RoundedRect(296, 230, 24);
+        _cellLockDim[idx].type   = Image.Type.Simple;
+        _cellLockDim[idx].color  = new Color(0f, 0f, 0f, 0.52f);
+        _cellLockDim[idx].raycastTarget = false;
+        var lockRT = lockGO.GetComponent<RectTransform>();
+        lockRT.anchorMin = lockRT.anchorMax = lockRT.pivot = new Vector2(0.5f, 0.5f);
+        lockRT.sizeDelta = new Vector2(296f, 230f); lockRT.anchoredPosition = Vector2.zero;
+        // "LOCKED" text on dim
+        var lockTxt = Lbl(lockGO.transform, "LOCKED", 26f, new Color(1f,1f,1f,0.80f));
+        lockTxt.fontStyle = FontStyles.Bold; lockTxt.alignment = TextAlignmentOptions.Center;
+
+        // Tap to select
+        int captured = idx;
+        var hitImg = cell.AddComponent<Image>(); hitImg.color = Color.clear;
+        var cellBtn = cell.AddComponent<Button>();
+        cellBtn.onClick.AddListener(() => SelectSkin(captured));
+    }
+
+    // ── Refresh ───────────────────────────────────────────────────────────────
+    void RefreshAll()
+    {
+        RefreshCoins();
+        RefreshMainCard();
+        RefreshPeekCards();
+        RefreshGrid();
+    }
+
+    void RefreshCoins()
+    {
+        if (_coinTxt != null) _coinTxt.text = SkinManager.GetCoins().ToString("N0");
+    }
+
+    void RefreshMainCard()
+    {
+        int id = _selectedIdx;
+        Color rc = RarityCol[id];
+
+        _mainBorder.color    = rc;
+        _mainRarityBg.color  = rc;
+        _mainRarityTxt.text  = SkinManager.Rarities[id].ToUpper();
+        _mainNameTxt.text    = SkinManager.SkinNames[id].ToUpper();
+
+        Sprite sp = Resources.Load<Sprite>(SkinManager.SkinSprites[id]);
+        _mainFishImg.sprite = sp;
+        _mainFishImg.color  = sp != null ? Color.white : new Color(0.3f, 0.3f, 0.4f, 0.5f);
+
+        bool unlocked  = SkinManager.IsUnlocked(id);
+        bool equipped  = SkinManager.GetSelectedSkin() == id && unlocked;
+        int  coins     = SkinManager.GetCoins();
+        int  cost      = SkinManager.SkinCosts[id];
+        bool canAfford = coins >= cost;
+
+        if (equipped)
         {
-            if (_cards[i] == null) continue;
-            bool isSel = (i == sel);
-
-            // Brighten/dim top bar to show selection
-            Transform bar = _cards[i].transform.Find("Bar");
-            if (bar != null)
-            {
-                Image bi = bar.GetComponent<Image>();
-                Color bc = bi.color;
-                bc.a = isSel ? 1f : 0.40f;
-                bi.color = bc;
-            }
-
-            // Badge vs Cost
-            Transform badge = _cards[i].transform.Find("Badge");
-            Transform cost  = _cards[i].transform.Find("Cost");
-            if (badge != null) badge.gameObject.SetActive(isSel);
-            if (cost  != null)
-            {
-                cost.gameObject.SetActive(!isSel);
-                if (!isSel)
-                {
-                    TextMeshProUGUI ct = cost.GetComponent<TextMeshProUGUI>();
-                    if (SkinManager.IsUnlocked(i))
-                        ct.text = "Tap to equip";
-                    else
-                        ct.text = SkinManager.SkinCosts[i] + " coins";
-                }
-            }
+            _actionBtnImg.color = new Color(0.00f, 0.65f, 0.55f);
+            _actionBtnTxt.text  = "EQUIPPED  v";
         }
+        else if (unlocked)
+        {
+            _actionBtnImg.color = new Color(0.10f, 0.45f, 0.92f);
+            _actionBtnTxt.text  = "EQUIP";
+        }
+        else if (canAfford)
+        {
+            _actionBtnImg.color = new Color(0.08f, 0.62f, 0.18f);
+            _actionBtnTxt.text  = "BUY  " + cost;
+        }
+        else
+        {
+            _actionBtnImg.color = new Color(0.30f, 0.30f, 0.35f);
+            _actionBtnTxt.text  = cost + " coins";
+        }
+    }
+
+    void RefreshPeekCards()
+    {
+        for (int pi = 0; pi < 2; pi++)
+        {
+            int sid = (_selectedIdx + pi + 1) % N;
+            _peekSkinIdx[pi] = sid;
+
+            Color rc = RarityCol[sid];
+            _peekBorder[pi].color = rc;
+            _peekRarTxt[pi].text  = SkinManager.Rarities[sid];
+            _peekNameTxt[pi].text = SkinManager.SkinNames[sid].ToUpper();
+
+            Sprite sp = Resources.Load<Sprite>(SkinManager.SkinSprites[sid]);
+            _peekFishImg[pi].sprite = sp;
+            _peekFishImg[pi].color  = sp != null ? Color.white : new Color(0.3f, 0.3f, 0.4f);
+
+            bool locked = !SkinManager.IsUnlocked(sid);
+            _peekLockDim[pi].gameObject.SetActive(locked);
+        }
+    }
+
+    void RefreshGrid()
+    {
+        for (int i = 0; i < N; i++)
+        {
+            bool locked   = !SkinManager.IsUnlocked(i);
+            bool selected = i == _selectedIdx;
+
+            _cellLockDim[i].gameObject.SetActive(locked);
+
+            // White outer halo visible only on selected cell — rendered behind border so content stays clear
+            _cellSelRing[i].color = selected ? Color.white : Color.clear;
+
+            // Bright border on selected, dimmed on others
+            _cellBorder[i].color = selected
+                ? RarityCol[i]
+                : new Color(RarityCol[i].r * 0.55f, RarityCol[i].g * 0.55f, RarityCol[i].b * 0.55f);
+        }
+    }
+
+    // ── Interaction ───────────────────────────────────────────────────────────
+    void SelectSkin(int idx)
+    {
+        _selectedIdx = idx;
+        RefreshAll();
+    }
+
+    void SelectFromPeek(int peekIdx)
+    {
+        _selectedIdx = _peekSkinIdx[peekIdx];
+        RefreshAll();
+    }
+
+    void OnActionTapped()
+    {
+        int id = _selectedIdx;
+        if (SkinManager.IsUnlocked(id))
+        {
+            SkinManager.SelectSkin(id);
+            FindFirstObjectByType<GameBootstrap>()?.ApplySelectedSkin();
+            Hide();
+            return;
+        }
+        if (SkinManager.TryPurchase(id))
+        {
+            SkinManager.SelectSkin(id);
+            FindFirstObjectByType<GameBootstrap>()?.ApplySelectedSkin();
+            Hide();
+            return;
+        }
+        // Not enough coins — flash the coin display
+        RefreshCoins();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    static void Stretch(RectTransform rt)
+    {
+        rt.anchorMin        = Vector2.zero;
+        rt.anchorMax        = Vector2.one;
+        rt.pivot            = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta        = Vector2.zero;
+        rt.offsetMin        = Vector2.zero;
+        rt.offsetMax        = Vector2.zero;
+    }
+
+    static GameObject MakeGO(string name, Transform parent)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        return go; // caller is responsible for adding RectTransform or Image (which adds it)
+    }
+
+    static TextMeshProUGUI Lbl(Transform parent, string text, float size, Color col)
+    {
+        var go = new GameObject("Lbl");
+        go.transform.SetParent(parent, false);
+        var t = go.AddComponent<TextMeshProUGUI>();
+        t.text = text; t.fontSize = size; t.color = col;
+        t.alignment = TextAlignmentOptions.Center;
+        t.overflowMode = TextOverflowModes.Overflow;
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        return t;
+    }
+
+    static Sprite RoundedRect(int w, int h, int r)
+    {
+        var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        var px = new Color32[w * h];
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+        {
+            int   cx = Mathf.Clamp(x, r, w - r);
+            int   cy = Mathf.Clamp(y, r, h - r);
+            float d  = Mathf.Sqrt((x-cx)*(x-cx) + (y-cy)*(y-cy));
+            px[y*w+x] = d <= r
+                ? new Color32(255,255,255,255)
+                : new Color32(0,0,0,0);
+        }
+        tex.SetPixels32(px); tex.Apply();
+        return Sprite.Create(tex, new Rect(0,0,w,h), new Vector2(0.5f,0.5f));
     }
 }

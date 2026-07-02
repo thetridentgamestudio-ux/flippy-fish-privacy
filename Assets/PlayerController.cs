@@ -277,6 +277,8 @@ IEnumerator SpeedBoostCoroutine(float duration)
 
  void OnCollisionEnter2D(Collision2D collision)
 {
+    // TODO: REMOVE BEFORE PRODUCTION — god mode for testing
+    return;
     if (!IsAlive) return;
 
     bool isGround   = collision.gameObject.CompareTag("Ground");
@@ -298,18 +300,37 @@ IEnumerator SpeedBoostCoroutine(float duration)
 }
     IEnumerator DeathSequence()
 {
-    GameBootstrap.Instance?.ShowSadPlayer();
+    var sr = GetComponent<SpriteRenderer>();
+    Color originalColor = sr != null ? sr.color : Color.white;
 
+    // ── Phase 1: Shock flash (3 white-red flickers, ~0.18s total) ────────
     rb.linearVelocity = Vector2.zero;
-    rb.gravityScale = 0f;
+    rb.gravityScale   = 0f;
+    rb.freezeRotation = true;
+    for (int i = 0; i < 3; i++)
+    {
+        if (sr != null) sr.color = Color.white;
+        yield return new WaitForSeconds(0.03f);
+        if (sr != null) sr.color = new Color(1f, 0.2f, 0.2f);
+        yield return new WaitForSeconds(0.03f);
+    }
+    // Go grey for the tumble — visually signals death before game-over screen
+    if (sr != null) sr.color = new Color(0.45f, 0.45f, 0.45f, 1f);
 
-    yield return new WaitForSeconds(0.4f);
+    // ── Phase 2: Tumble left off-screen immediately ───────────────────────
+    rb.freezeRotation = false;
+    rb.gravityScale   = 3.5f;
+    rb.linearVelocity = new Vector2(-18f, 4f); // strong left + upward kick
+    rb.AddTorque(600f);                         // fast clockwise spin
 
-    Die(); // tumble
+    // ── Phase 3: Hide once off-screen (~0.45s), then trigger game over ────
+    yield return new WaitForSeconds(0.45f);
 
-    yield return new WaitForSeconds(0.3f);
+    if (sr != null) sr.enabled = false;
+    rb.linearVelocity  = Vector2.zero;
+    rb.angularVelocity = 0f;
+    rb.freezeRotation  = true;
 
-    // 🚨 THIS MUST ALWAYS RUN
     GameBootstrap.Instance?.TriggerGameOver();
 }
 
@@ -400,8 +421,12 @@ void FixedUpdate()
 
         rb.linearVelocity = Vector2.zero;
         rb.angularVelocity = 0f;
-        rb.gravityScale = 0.35f;   // gentle gravity — matches StartGame()
-        rb.freezeRotation = true;  // stop tumble from previous death
+        rb.gravityScale = 0.35f;
+        rb.freezeRotation = true;
+
+        // Re-enable sprite hidden during death exit
+        var sr = GetComponent<SpriteRenderer>();
+        if (sr != null) sr.enabled = true;
 
         IsAlive = true;
     }
