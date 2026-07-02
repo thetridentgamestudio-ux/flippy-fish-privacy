@@ -1087,12 +1087,12 @@ public void TriggerGameOver()
             else if (best > 0)
             {
                 int gap = best - Score;
-                string gapMsg = gap <= 3
-                    ? "<color=#FF9F40>So close!</color>"
-                    : gap <= 10
-                        ? "<color=#AAD4FF>Just " + gap + " away from your best</color>"
-                        : "<color=#888888>Best: " + best + "</color>";
-                gameOverScoreText.text = "Score: " + Score + "\n<size=60%>" + gapMsg + "</size>";
+                if (gap <= 3)
+                    gameOverScoreText.text = "Score: " + Score + "\n<size=60%><color=#FF9F40>So close!</color></size>";
+                else if (gap <= 10)
+                    gameOverScoreText.text = "Score: " + Score + "\n<size=60%><color=#AAD4FF>Just " + gap + " away from best</color></size>";
+                else
+                    gameOverScoreText.text = "Score: " + Score;
                 HapticManager.Death();
             }
             else
@@ -3016,15 +3016,15 @@ void CreateGameOverButtons()
     RectTransform crownRT = crownGO.GetComponent<RectTransform>();
     crownRT.anchorMin = new Vector2(0.5f,0.5f); crownRT.anchorMax = new Vector2(0.5f,0.5f);
     crownRT.pivot     = new Vector2(0.5f,0.5f);
-    crownRT.sizeDelta = new Vector2(110f, 110f);
-    crownRT.anchoredPosition = new Vector2(0f, 160f);
+    crownRT.sizeDelta = new Vector2(160f, 160f);
+    crownRT.anchoredPosition = new Vector2(0f, 180f);
 
     // ── "Best: X" label ───────────────────────────────────────────────────
     GameObject bestGO = new GameObject("BestLabel");
     bestGO.transform.SetParent(card.transform, false);
     TextMeshProUGUI bestLbl = bestGO.AddComponent<TextMeshProUGUI>();
     bestLbl.font         = tmpFont;
-    bestLbl.fontSize     = 48;
+    bestLbl.fontSize     = 66;
     bestLbl.fontStyle    = FontStyles.Bold;
     bestLbl.alignment    = TextAlignmentOptions.Center;
     bestLbl.color        = Color.white;
@@ -3034,8 +3034,8 @@ void CreateGameOverButtons()
     RectTransform bestRT = bestGO.GetComponent<RectTransform>();
     bestRT.anchorMin = new Vector2(0f,0.5f); bestRT.anchorMax = new Vector2(1f,0.5f);
     bestRT.pivot     = new Vector2(0.5f,0.5f);
-    bestRT.anchoredPosition = new Vector2(0f, 80f);
-    bestRT.sizeDelta        = new Vector2(0f, 66f);
+    bestRT.anchoredPosition = new Vector2(0f, 86f);
+    bestRT.sizeDelta        = new Vector2(0f, 82f);
 
     // ── Thin divider ──────────────────────────────────────────────────────
     GameObject divGO = new GameObject("Divider");
