@@ -3471,8 +3471,8 @@ void CreateDailyQuestsPanelUI()
     panelImg.color = new Color(0.04f, 0.10f, 0.22f, 1f);
     var panelRT = panelGO.GetComponent<RectTransform>();
     panelRT.anchorMin = panelRT.anchorMax = panelRT.pivot = new Vector2(0.5f, 0.5f);
-    panelRT.sizeDelta        = new Vector2(1000f, 1380f);
-    panelRT.anchoredPosition = new Vector2(0f, 40f);
+    panelRT.sizeDelta        = new Vector2(1000f, 1430f);
+    panelRT.anchoredPosition = new Vector2(0f, -20f);
 
     // ── HEADER (blue, 160px, rounded top corners) ──────────────────────────
     var hdrGO = new GameObject("Header");
@@ -3546,7 +3546,7 @@ void CreateDailyQuestsPanelUI()
     // Label
     var ovLblGO = new GameObject("OvLabel"); ovLblGO.transform.SetParent(ovRowGO.transform, false);
     var ovLbl = ovLblGO.AddComponent<TextMeshProUGUI>();
-    ovLbl.text = "Daily Progress   0 / 3 completed";
+    ovLbl.text = "Daily Progress · 0 / 3 completed";
     ovLbl.fontSize = 28f; ovLbl.color = new Color(1f,1f,1f,0.55f);
     ovLbl.alignment = TextAlignmentOptions.BottomLeft;
     var ovLblRT = ovLblGO.GetComponent<RectTransform>();
@@ -3557,7 +3557,7 @@ void CreateDailyQuestsPanelUI()
     // Track (light, visible on dark bg)
     var ovTrackGO = new GameObject("OvTrack"); ovTrackGO.transform.SetParent(ovRowGO.transform, false);
     var ovTrackImg = ovTrackGO.AddComponent<Image>();
-    ovTrackImg.color = new Color(1f,1f,1f,0.12f);
+    ovTrackImg.color = new Color(1f,1f,1f,0.30f);
     var ovTrackRT = ovTrackGO.GetComponent<RectTransform>();
     ovTrackRT.anchorMin = new Vector2(0f, 0f); ovTrackRT.anchorMax = new Vector2(1f, 0.42f);
     ovTrackRT.offsetMin = ovTrackRT.offsetMax = Vector2.zero;
@@ -3588,7 +3588,7 @@ void CreateDailyQuestsPanelUI()
     var contentRT = contentGO.AddComponent<RectTransform>();
     contentRT.anchorMin = new Vector2(0f, 1f); contentRT.anchorMax = new Vector2(1f, 1f);
     contentRT.pivot = new Vector2(0.5f, 1f);
-    contentRT.sizeDelta = new Vector2(-46f, 943f);
+    contentRT.sizeDelta = new Vector2(-46f, 953f);
     contentRT.anchoredPosition = new Vector2(0f, -314f);
     _questContentRoot = contentGO.transform;
 
@@ -3600,8 +3600,8 @@ void CreateDailyQuestsPanelUI()
     var fadeRT = fadeGO.GetComponent<RectTransform>();
     fadeRT.anchorMin = new Vector2(0f, 1f); fadeRT.anchorMax = new Vector2(1f, 1f);
     fadeRT.pivot = new Vector2(0.5f, 0f);          // pivot at bottom of fade strip
-    fadeRT.sizeDelta = new Vector2(0f, 70f);
-    fadeRT.anchoredPosition = new Vector2(0f, -1275f); // sits flush on top of footer
+    fadeRT.sizeDelta = new Vector2(0f, 55f);
+    fadeRT.anchoredPosition = new Vector2(0f, -1320f);
 
     // ── FOOTER TIMER ──────────────────────────────────────────────────────
     var footBgGO = new GameObject("FooterBg"); footBgGO.transform.SetParent(panelGO.transform, false);
@@ -3612,7 +3612,7 @@ void CreateDailyQuestsPanelUI()
     footBgRT.anchorMin = new Vector2(0f, 1f); footBgRT.anchorMax = new Vector2(1f, 1f);
     footBgRT.pivot = new Vector2(0.5f, 1f);
     footBgRT.sizeDelta = new Vector2(-69f, 87f);
-    footBgRT.anchoredPosition = new Vector2(0f, -1275f);
+    footBgRT.anchoredPosition = new Vector2(0f, -1320f);
 
     var footTxtGO = new GameObject("FooterTxt"); footTxtGO.transform.SetParent(footBgGO.transform, false);
     var footTxt = footTxtGO.AddComponent<TextMeshProUGUI>();
@@ -3706,7 +3706,7 @@ void ShowDailyQuests()
         _questOverallFill.GetComponent<RectTransform>().anchorMax = new Vector2(pct, 1f);
     }
     if (_questOverallLabel != null)
-        _questOverallLabel.text = $"Daily Progress   {completedCount} / {quests.Count} completed";
+        _questOverallLabel.text = $"Daily Progress · {completedCount} / {quests.Count} completed";
 
     // ── Sprites ───────────────────────────────────────────────────────────
     Sprite fishSpr = Resources.Load<Sprite>("Fish_quest");
@@ -3714,7 +3714,7 @@ void ShowDailyQuests()
 
     // ── Card constants ────────────────────────────────────────────────────
     float cardH    = 288f;
-    float cardGap  = 21f;
+    float cardGap  = 26f;
     float topPad   = 18f;
     float iconColW = 150f;
     float rewColW  = 173f;
@@ -3802,7 +3802,7 @@ void ShowDailyQuests()
         pillBadgeImg.color  = done ? new Color(0.10f,0.40f,0.18f) : new Color(0.10f,0.24f,0.58f);
         var pillBadgeRT = pillBadgeGO.GetComponent<RectTransform>();
         pillBadgeRT.anchorMin = pillBadgeRT.anchorMax = pillBadgeRT.pivot = new Vector2(0.5f, 1f);
-        pillBadgeRT.sizeDelta = new Vector2(72f, 72f);
+        pillBadgeRT.sizeDelta = new Vector2(86f, 86f);
         pillBadgeRT.anchoredPosition = new Vector2(0f, -8f);
 
         if (coinSpr != null)
@@ -3811,7 +3811,7 @@ void ShowDailyQuests()
             var pImg = pGO.AddComponent<Image>(); pImg.sprite = coinSpr; pImg.preserveAspect = true; pImg.color = Color.white;
             var pRT = pGO.GetComponent<RectTransform>();
             pRT.anchorMin = pRT.anchorMax = pRT.pivot = new Vector2(0.5f, 0.5f);
-            pRT.sizeDelta = new Vector2(50f, 50f); pRT.anchoredPosition = Vector2.zero;
+            pRT.sizeDelta = new Vector2(62f, 62f); pRT.anchoredPosition = Vector2.zero;
         }
 
         // "+100\ncoins" in a single text below the badge — spans the remaining lower 55% of the column
