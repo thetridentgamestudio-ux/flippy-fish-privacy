@@ -3485,42 +3485,48 @@ void CreateDailyQuestsPanelUI()
     hdrRT.sizeDelta = new Vector2(0f, 184f);
     hdrRT.anchoredPosition = Vector2.zero;
 
-    // Fish icon in a circle
+    // ── LEFT ZONE: fish icon pinned to left edge (0–13% of header width) ──
     var fishSpr = Resources.Load<Sprite>("Fish_quest");
+    var fishZoneGO = new GameObject("FishZone"); fishZoneGO.transform.SetParent(hdrGO.transform, false);
+    fishZoneGO.AddComponent<RectTransform>();
+    var fishZoneRT = fishZoneGO.GetComponent<RectTransform>();
+    fishZoneRT.anchorMin = new Vector2(0f, 0f); fishZoneRT.anchorMax = new Vector2(0.13f, 1f);
+    fishZoneRT.offsetMin = fishZoneRT.offsetMax = Vector2.zero;
+
     if (fishSpr != null)
     {
-        var circGO = new GameObject("FishCircle"); circGO.transform.SetParent(hdrGO.transform, false);
+        var circGO = new GameObject("FishCircle"); circGO.transform.SetParent(fishZoneGO.transform, false);
         var circImg = circGO.AddComponent<Image>();
         circImg.sprite = MakeRoundedRectSprite(101, 101, 51); circImg.color = new Color(1f,1f,1f,0.18f);
         var circRT = circGO.GetComponent<RectTransform>();
-        circRT.anchorMin = circRT.anchorMax = new Vector2(0f, 0.5f); circRT.pivot = new Vector2(0f, 0.5f);
-        circRT.sizeDelta = new Vector2(101f, 101f); circRT.anchoredPosition = new Vector2(21f, 0f);
+        circRT.anchorMin = circRT.anchorMax = circRT.pivot = new Vector2(0.5f, 0.5f);
+        circRT.sizeDelta = new Vector2(96f, 96f); circRT.anchoredPosition = Vector2.zero;
 
         var fishGO = new GameObject("FishIcon"); fishGO.transform.SetParent(circGO.transform, false);
         var fishImg = fishGO.AddComponent<Image>(); fishImg.sprite = fishSpr; fishImg.preserveAspect = true;
         var fishRT = fishGO.GetComponent<RectTransform>();
         fishRT.anchorMin = fishRT.anchorMax = fishRT.pivot = new Vector2(0.5f, 0.5f);
-        fishRT.sizeDelta = new Vector2(74f, 74f); fishRT.anchoredPosition = Vector2.zero;
+        fishRT.sizeDelta = new Vector2(70f, 70f); fishRT.anchoredPosition = Vector2.zero;
     }
 
-    // Title
+    // ── CENTER ZONE: title occupies the middle 74% of header width ────────
     var titleGO = new GameObject("Title"); titleGO.transform.SetParent(hdrGO.transform, false);
     var titleTxt = titleGO.AddComponent<TextMeshProUGUI>();
     titleTxt.text = "Daily Quests"; titleTxt.fontSize = 60f;
     titleTxt.fontStyle = FontStyles.Bold; titleTxt.color = Color.white;
     titleTxt.alignment = TextAlignmentOptions.Center;
     var titleRT = titleGO.GetComponent<RectTransform>();
-    titleRT.anchorMin = Vector2.zero; titleRT.anchorMax = Vector2.one;
-    titleRT.offsetMin = new Vector2(152f, 0f); titleRT.offsetMax = new Vector2(-152f, 0f);
+    titleRT.anchorMin = new Vector2(0.13f, 0f); titleRT.anchorMax = new Vector2(0.87f, 1f);
+    titleRT.offsetMin = titleRT.offsetMax = Vector2.zero;
 
-    // X close button
+    // ── RIGHT ZONE: X button pinned to right edge (87–100% of header width)
     var xGO = new GameObject("CloseX"); xGO.transform.SetParent(hdrGO.transform, false);
     var xBgImg = xGO.AddComponent<Image>();
     xBgImg.sprite = MakeRoundedRectSprite(83, 83, 42); xBgImg.color = new Color(1f,1f,1f,0.22f);
     xGO.AddComponent<Button>().onClick.AddListener(CloseDailyQuests);
     var xRT = xGO.GetComponent<RectTransform>();
-    xRT.anchorMin = xRT.anchorMax = new Vector2(1f, 0.5f); xRT.pivot = new Vector2(1f, 0.5f);
-    xRT.sizeDelta = new Vector2(83f, 83f); xRT.anchoredPosition = new Vector2(-21f, 0f);
+    xRT.anchorMin = xRT.anchorMax = xRT.pivot = new Vector2(0.935f, 0.5f);
+    xRT.sizeDelta = new Vector2(83f, 83f); xRT.anchoredPosition = Vector2.zero;
     var xTxtGO = new GameObject("X"); xTxtGO.transform.SetParent(xGO.transform, false);
     var xTxt = xTxtGO.AddComponent<TextMeshProUGUI>();
     xTxt.text = "X"; xTxt.fontSize = 44f; xTxt.fontStyle = FontStyles.Bold;
@@ -3566,15 +3572,15 @@ void CreateDailyQuestsPanelUI()
     ovFillRT.offsetMin = ovFillRT.offsetMax = Vector2.zero;
     _questOverallFill = ovFillImg;
 
-    // ── THIN SEPARATOR between progress row and quest cards ───────────────
+    // ── SEPARATOR between progress row and quest cards ────────────────────
     var sepGO = new GameObject("ProgressSeparator"); sepGO.transform.SetParent(panelGO.transform, false);
     var sepImg = sepGO.AddComponent<Image>();
-    sepImg.color = new Color(1f, 1f, 1f, 0.08f);
+    sepImg.color = new Color(1f, 1f, 1f, 0.22f);
     var sepRT = sepGO.GetComponent<RectTransform>();
     sepRT.anchorMin = new Vector2(0f, 1f); sepRT.anchorMax = new Vector2(1f, 1f);
     sepRT.pivot = new Vector2(0.5f, 1f);
     sepRT.sizeDelta = new Vector2(-46f, 2f);
-    sepRT.anchoredPosition = new Vector2(0f, -293f);
+    sepRT.anchoredPosition = new Vector2(0f, -300f);
 
     // ── CONTENT ROOT (fixed height, top-anchored, fits 3 cards exactly) ───
     var contentGO = new GameObject("QuestContentRoot");
@@ -3586,15 +3592,16 @@ void CreateDailyQuestsPanelUI()
     contentRT.anchoredPosition = new Vector2(0f, -314f);
     _questContentRoot = contentGO.transform;
 
-    // ── BOTTOM FADE — dark strip that blends content into footer ──────────
+    // ── BOTTOM FADE — anchored to bottom of panel, sits between content and footer
+    // Panel height = 1380. Footer top = -1275. Fade covers the 70px above the footer.
     var fadeGO = new GameObject("BottomFade"); fadeGO.transform.SetParent(panelGO.transform, false);
     var fadeImg = fadeGO.AddComponent<Image>();
-    fadeImg.color = new Color(0.04f, 0.10f, 0.22f, 0.85f);
+    fadeImg.color = new Color(0.04f, 0.10f, 0.22f, 0.90f);
     var fadeRT = fadeGO.GetComponent<RectTransform>();
     fadeRT.anchorMin = new Vector2(0f, 1f); fadeRT.anchorMax = new Vector2(1f, 1f);
-    fadeRT.pivot = new Vector2(0.5f, 1f);
-    fadeRT.sizeDelta = new Vector2(0f, 56f);
-    fadeRT.anchoredPosition = new Vector2(0f, -1268f);
+    fadeRT.pivot = new Vector2(0.5f, 0f);          // pivot at bottom of fade strip
+    fadeRT.sizeDelta = new Vector2(0f, 70f);
+    fadeRT.anchoredPosition = new Vector2(0f, -1275f); // sits flush on top of footer
 
     // ── FOOTER TIMER ──────────────────────────────────────────────────────
     var footBgGO = new GameObject("FooterBg"); footBgGO.transform.SetParent(panelGO.transform, false);
@@ -3788,36 +3795,35 @@ void ShowDailyQuests()
         rewColRT.sizeDelta = new Vector2(rewColW, 0f);
         rewColRT.anchoredPosition = Vector2.zero;
 
-        // Coin icon badge (Fix #1: was Pill_quest sprite that looked like a pencil — now coin icon)
+        // Coin icon badge — small circle at top of reward column
         var pillBadgeGO = new GameObject("CoinBadge"); pillBadgeGO.transform.SetParent(rewColGO.transform, false);
         var pillBadgeImg = pillBadgeGO.AddComponent<Image>();
-        pillBadgeImg.sprite = MakeRoundedRectSprite(138, 138, 69); // circle
+        pillBadgeImg.sprite = MakeRoundedRectSprite(100, 100, 50);
         pillBadgeImg.color  = done ? new Color(0.10f,0.40f,0.18f) : new Color(0.10f,0.24f,0.58f);
         var pillBadgeRT = pillBadgeGO.GetComponent<RectTransform>();
         pillBadgeRT.anchorMin = pillBadgeRT.anchorMax = pillBadgeRT.pivot = new Vector2(0.5f, 1f);
-        pillBadgeRT.sizeDelta = new Vector2(86f, 86f);
-        pillBadgeRT.anchoredPosition = new Vector2(0f, -10f);
+        pillBadgeRT.sizeDelta = new Vector2(72f, 72f);
+        pillBadgeRT.anchoredPosition = new Vector2(0f, -8f);
 
-        // Coin stack sprite inside badge (Fix #1: replaced pencil-looking Pill_quest with coin sprite)
         if (coinSpr != null)
         {
             var pGO = new GameObject("CoinIcon"); pGO.transform.SetParent(pillBadgeGO.transform, false);
             var pImg = pGO.AddComponent<Image>(); pImg.sprite = coinSpr; pImg.preserveAspect = true; pImg.color = Color.white;
             var pRT = pGO.GetComponent<RectTransform>();
             pRT.anchorMin = pRT.anchorMax = pRT.pivot = new Vector2(0.5f, 0.5f);
-            pRT.sizeDelta = new Vector2(58f, 58f); pRT.anchoredPosition = Vector2.zero;
+            pRT.sizeDelta = new Vector2(50f, 50f); pRT.anchoredPosition = Vector2.zero;
         }
 
-        // Fix #6: Reward amount + "coins" merged into one text element — no more orphaned "coins" label
+        // "+100\ncoins" in a single text below the badge — spans the remaining lower 55% of the column
         var rewAmtGO = new GameObject("RewardAmt"); rewAmtGO.transform.SetParent(rewColGO.transform, false);
         var rewAmt = rewAmtGO.AddComponent<TextMeshProUGUI>();
-        rewAmt.text = $"<size=100%>+{quest.rewardCoins}</size>\n<size=58%>coins</size>";
-        rewAmt.fontSize = 36f; rewAmt.fontStyle = FontStyles.Bold;
+        rewAmt.text = $"+{quest.rewardCoins}\n<size=60%>coins</size>";
+        rewAmt.fontSize = 38f; rewAmt.fontStyle = FontStyles.Bold;
         rewAmt.color = new Color(1f, 0.88f, 0.15f);
         rewAmt.alignment = TextAlignmentOptions.Center;
-        rewAmt.lineSpacing = -8f;
         var rewAmtRT = rewAmtGO.GetComponent<RectTransform>();
-        rewAmtRT.anchorMin = new Vector2(0f, 0.04f); rewAmtRT.anchorMax = new Vector2(1f, 0.60f);
+        // sits in the lower 50% of the reward column, below the badge
+        rewAmtRT.anchorMin = new Vector2(0f, 0.05f); rewAmtRT.anchorMax = new Vector2(1f, 0.52f);
         rewAmtRT.offsetMin = rewAmtRT.offsetMax = Vector2.zero;
 
         // ── CENTER CONTENT ────────────────────────────────────────────────

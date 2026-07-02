@@ -199,8 +199,11 @@ public class DailyQuestManager : MonoBehaviour
             string json = PlayerPrefs.GetString(QUEST_SAVE_KEY);
             QuestList list = JsonUtility.FromJson<QuestList>(json);
             dailyQuests = list.quests ?? new List<Quest>();
-            // Regenerate if saved data has stale/tiny reward values
-            bool stale = dailyQuests.Count == 0 || dailyQuests.Exists(q => q.rewardCoins < 50);
+            // Regenerate if saved data is stale: old reward values, wrong count, or
+            // still contains the renamed "quest_hard_mode" id (replaced by "quest_score_20")
+            bool stale = dailyQuests.Count == 0
+                || dailyQuests.Exists(q => q.rewardCoins < 50)
+                || dailyQuests.Exists(q => q.id == "quest_hard_mode");
             if (stale) { dailyQuests.Clear(); PlayerPrefs.DeleteKey(QUEST_SAVE_KEY); }
         }
     }
