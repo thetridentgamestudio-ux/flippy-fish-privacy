@@ -74,16 +74,16 @@ public class DailyQuestManager : MonoBehaviour
             completed = false
         });
 
-        // Quest 2: Reach difficulty HARD
+        // Quest 2: Score 20 in one run
         instance.dailyQuests.Add(new Quest
         {
-            id = "quest_hard_mode",
-            title = "Play on Hard",
-            description = "Reach score 20+ (Hard difficulty)",
+            id = "quest_score_20",
+            title = "Score 20 Points",
+            description = "Reach a score of 20 in a single run",
             targetValue = 20,
             currentProgress = 0,
             rewardCoins = 150,
-            type = Quest.QuestType.ReachDifficulty,
+            type = Quest.QuestType.ScoreGoal,
             completed = false
         });
 
@@ -199,6 +199,9 @@ public class DailyQuestManager : MonoBehaviour
             string json = PlayerPrefs.GetString(QUEST_SAVE_KEY);
             QuestList list = JsonUtility.FromJson<QuestList>(json);
             dailyQuests = list.quests ?? new List<Quest>();
+            // Regenerate if saved data has stale/tiny reward values
+            bool stale = dailyQuests.Count == 0 || dailyQuests.Exists(q => q.rewardCoins < 50);
+            if (stale) { dailyQuests.Clear(); PlayerPrefs.DeleteKey(QUEST_SAVE_KEY); }
         }
     }
 
