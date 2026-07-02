@@ -3441,7 +3441,7 @@ IEnumerator ReliefPipePulse(Transform pipe)
 
 void CreateDailyQuestsPanelUI()
 {
-    Debug.Log("[DailyQuests] CreateDailyQuestsPanelUI v4");
+    Debug.Log("[DailyQuests] CreateDailyQuestsPanelUI v5");
 
     // ── Dedicated top-level overlay canvas (sort 9999 — above everything) ──
     var overlayCanvasGO = new GameObject("QuestOverlayCanvas");
@@ -3488,7 +3488,7 @@ void CreateDailyQuestsPanelUI()
     // ── LEFT ZONE: fish icon pinned to left edge (0–13% of header width) ──
     var fishSpr = Resources.Load<Sprite>("Fish_quest");
     var fishZoneGO = new GameObject("FishZone"); fishZoneGO.transform.SetParent(hdrGO.transform, false);
-    fishZoneGO.AddComponent<RectTransform>();
+    fishZoneGO.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0f); // transparent container — AddComponent<Image> guarantees RectTransform is auto-attached
     var fishZoneRT = fishZoneGO.GetComponent<RectTransform>();
     fishZoneRT.anchorMin = new Vector2(0f, 0f); fishZoneRT.anchorMax = new Vector2(0.13f, 1f);
     fishZoneRT.offsetMin = fishZoneRT.offsetMax = Vector2.zero;
