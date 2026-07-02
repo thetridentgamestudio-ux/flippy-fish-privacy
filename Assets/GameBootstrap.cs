@@ -3600,8 +3600,8 @@ void CreateDailyQuestsPanelUI()
     var fadeRT = fadeGO.GetComponent<RectTransform>();
     fadeRT.anchorMin = new Vector2(0f, 1f); fadeRT.anchorMax = new Vector2(1f, 1f);
     fadeRT.pivot = new Vector2(0.5f, 0f);          // pivot at bottom of fade strip
-    fadeRT.sizeDelta = new Vector2(0f, 55f);
-    fadeRT.anchoredPosition = new Vector2(0f, -1320f);
+    fadeRT.sizeDelta = new Vector2(0f, 20f);
+    fadeRT.anchoredPosition = new Vector2(0f, -1278f);
 
     // ── FOOTER TIMER ──────────────────────────────────────────────────────
     var footBgGO = new GameObject("FooterBg"); footBgGO.transform.SetParent(panelGO.transform, false);
@@ -3612,7 +3612,7 @@ void CreateDailyQuestsPanelUI()
     footBgRT.anchorMin = new Vector2(0f, 1f); footBgRT.anchorMax = new Vector2(1f, 1f);
     footBgRT.pivot = new Vector2(0.5f, 1f);
     footBgRT.sizeDelta = new Vector2(-69f, 87f);
-    footBgRT.anchoredPosition = new Vector2(0f, -1320f);
+    footBgRT.anchoredPosition = new Vector2(0f, -1278f);
 
     var footTxtGO = new GameObject("FooterTxt"); footTxtGO.transform.SetParent(footBgGO.transform, false);
     var footTxt = footTxtGO.AddComponent<TextMeshProUGUI>();
