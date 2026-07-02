@@ -3850,7 +3850,7 @@ void ShowDailyQuests()
         var progTxtGO = new GameObject("ProgTxt"); progTxtGO.transform.SetParent(midGO.transform, false);
         var progTxt = progTxtGO.AddComponent<TextMeshProUGUI>();
         progTxt.text = $"{cur} / {quest.targetValue}";
-        progTxt.fontSize = 34f;
+        progTxt.fontSize = 38f;
         progTxt.color = done ? new Color(0.55f, 1f, 0.60f, 0.80f) : new Color(1f,1f,1f,0.50f);
         progTxt.alignment = TextAlignmentOptions.TopLeft;
         var progTxtRT = progTxtGO.GetComponent<RectTransform>();
