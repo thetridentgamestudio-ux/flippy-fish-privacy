@@ -3802,7 +3802,7 @@ void ShowDailyQuests()
         pillBadgeImg.color  = done ? new Color(0.10f,0.40f,0.18f) : new Color(0.10f,0.24f,0.58f);
         var pillBadgeRT = pillBadgeGO.GetComponent<RectTransform>();
         pillBadgeRT.anchorMin = pillBadgeRT.anchorMax = pillBadgeRT.pivot = new Vector2(0.5f, 1f);
-        pillBadgeRT.sizeDelta = new Vector2(86f, 86f);
+        pillBadgeRT.sizeDelta = new Vector2(110f, 110f);
         pillBadgeRT.anchoredPosition = new Vector2(0f, -8f);
 
         if (coinSpr != null)
@@ -3811,7 +3811,7 @@ void ShowDailyQuests()
             var pImg = pGO.AddComponent<Image>(); pImg.sprite = coinSpr; pImg.preserveAspect = true; pImg.color = Color.white;
             var pRT = pGO.GetComponent<RectTransform>();
             pRT.anchorMin = pRT.anchorMax = pRT.pivot = new Vector2(0.5f, 0.5f);
-            pRT.sizeDelta = new Vector2(62f, 62f); pRT.anchoredPosition = Vector2.zero;
+            pRT.sizeDelta = new Vector2(80f, 80f); pRT.anchoredPosition = Vector2.zero;
         }
 
         // "+100\ncoins" in a single text below the badge — spans the remaining lower 55% of the column
