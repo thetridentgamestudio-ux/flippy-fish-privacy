@@ -1006,8 +1006,6 @@ public void CollectGoldCoin()
 
 public void TriggerGameOver()
 {
-    // TODO: REMOVE BEFORE PRODUCTION — god mode for testing
-    if (true) return;
     if (IsGameOver) return;
 
     IsGameOver = true;

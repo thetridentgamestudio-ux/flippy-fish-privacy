@@ -277,8 +277,6 @@ IEnumerator SpeedBoostCoroutine(float duration)
 
  void OnCollisionEnter2D(Collision2D collision)
 {
-    // TODO: REMOVE BEFORE PRODUCTION — god mode for testing
-    return;
     if (!IsAlive) return;
 
     bool isGround   = collision.gameObject.CompareTag("Ground");
