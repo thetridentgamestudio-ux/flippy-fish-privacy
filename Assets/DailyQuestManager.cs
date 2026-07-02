@@ -194,18 +194,30 @@ public class DailyQuestManager : MonoBehaviour
 
     void LoadQuests()
     {
-        if (PlayerPrefs.HasKey(QUEST_SAVE_KEY))
+        if (!PlayerPrefs.HasKey(QUEST_SAVE_KEY)) return;
+
+        string json = PlayerPrefs.GetString(QUEST_SAVE_KEY);
+        QuestList list = JsonUtility.FromJson<QuestList>(json);
+        dailyQuests = list.quests ?? new List<Quest>();
+
+        // Hard reset only when data is fundamentally broken (empty or tiny rewards)
+        bool hardStale = dailyQuests.Count == 0 || dailyQuests.Exists(q => q.rewardCoins < 50);
+        if (hardStale) { dailyQuests.Clear(); PlayerPrefs.DeleteKey(QUEST_SAVE_KEY); return; }
+
+        // Soft migration: rename quest_hard_mode → quest_score_20 in-place so the
+        // player keeps their completion status and progress on every other quest.
+        bool migrated = false;
+        for (int i = 0; i < dailyQuests.Count; i++)
         {
-            string json = PlayerPrefs.GetString(QUEST_SAVE_KEY);
-            QuestList list = JsonUtility.FromJson<QuestList>(json);
-            dailyQuests = list.quests ?? new List<Quest>();
-            // Regenerate if saved data is stale: old reward values, wrong count, or
-            // still contains the renamed "quest_hard_mode" id (replaced by "quest_score_20")
-            bool stale = dailyQuests.Count == 0
-                || dailyQuests.Exists(q => q.rewardCoins < 50)
-                || dailyQuests.Exists(q => q.id == "quest_hard_mode");
-            if (stale) { dailyQuests.Clear(); PlayerPrefs.DeleteKey(QUEST_SAVE_KEY); }
+            if (dailyQuests[i].id != "quest_hard_mode") continue;
+            dailyQuests[i].id          = "quest_score_20";
+            dailyQuests[i].title       = "Score 20 Points";
+            dailyQuests[i].description = "Reach a score of 20 in a single run";
+            dailyQuests[i].type        = Quest.QuestType.ScoreGoal;
+            // rewardCoins, currentProgress, completed — preserved as-is
+            migrated = true;
         }
+        if (migrated) SaveQuests();
     }
 
     [System.Serializable]
