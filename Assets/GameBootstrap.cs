@@ -3471,8 +3471,8 @@ void CreateDailyQuestsPanelUI()
     panelImg.color = new Color(0.04f, 0.10f, 0.22f, 1f);
     var panelRT = panelGO.GetComponent<RectTransform>();
     panelRT.anchorMin = panelRT.anchorMax = panelRT.pivot = new Vector2(0.5f, 0.5f);
-    panelRT.sizeDelta        = new Vector2(1159f, 1380f);
-    panelRT.anchoredPosition = new Vector2(0f, 69f);
+    panelRT.sizeDelta        = new Vector2(1000f, 1380f);
+    panelRT.anchoredPosition = new Vector2(0f, 40f);
 
     // ── HEADER (blue, 160px, rounded top corners) ──────────────────────────
     var hdrGO = new GameObject("Header");
