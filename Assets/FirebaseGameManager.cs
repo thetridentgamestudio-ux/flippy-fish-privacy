@@ -663,7 +663,7 @@ IEnumerator RestorePlayerTab()
         var navRT = _bottomNavBar.GetComponent<RectTransform>();
         navRT.anchorMin = new Vector2(0, 0); navRT.anchorMax = new Vector2(1, 0);
         navRT.pivot     = new Vector2(0.5f, 0);
-        navRT.sizeDelta        = new Vector2(0, 280);
+        navRT.sizeDelta        = new Vector2(0, 340);
         navRT.anchoredPosition = new Vector2(0, 40);
 
         // Helper: nav item (icon + optional label) — each section is 1/3 of nav bar
@@ -747,12 +747,12 @@ IEnumerator RestorePlayerTab()
         }
 
         // Skins — far left
-        MakeNavItem("SkinsButton", "icon_skins", "", 0f, 0.35f, () => SkinSelectUI.Show(), false, "", 200);
+        MakeNavItem("SkinsButton", "icon_skins", "", 0f, 0.35f, () => SkinSelectUI.Show(), false, "", 260);
         skinsButtonObj = _bottomNavBar.transform.Find("SkinsButton")?.gameObject;
 
         // Quest — far right
         MakeNavItem("QuestButton", "icon_quest", "", 0.65f, 1f,
-                    () => GameBootstrap.Instance?.OpenDailyQuests(), showDot: false, iconOverrideText: "", iconSize: 200);
+                    () => GameBootstrap.Instance?.OpenDailyQuests(), showDot: false, iconOverrideText: "", iconSize: 260);
     }
 
 void Create2PlayerButton(GameObject parent)
