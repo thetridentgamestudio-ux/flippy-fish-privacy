@@ -7,12 +7,13 @@ public class ScoreTrigger : MonoBehaviour
 
     private bool scored = false;
 
+    public void ResetScored() => scored = false;
+
     void OnTriggerEnter2D(Collider2D other)
     {
         if (!other.CompareTag("Player") || scored) return;
 
         scored = true;
-        Debug.Log("[ScoreTrigger] Player passed trigger");
 
         // Gold circle burst — no green squares
         var ps = GameBootstrap.Instance.CreateParticleBurst(

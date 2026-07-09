@@ -1,71 +1,53 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-/// <summary>
-/// Object pool for pipes to reduce GC pressure during high-spawn periods
-/// Spawns ~1 pipe per 1-1.5 seconds = ~40-60 pipes per minute during long sessions
-/// </summary>
-public class PipePool : MonoBehaviour
+/// Object pool for pipeGroups (pipeGroup shell + TopObstacle + BottomObstacle + ScoreTrigger).
+/// No prefab needed — pools entire assembled hierarchies and reinitializes them on reuse.
+/// Pool fills naturally as pipes scroll off screen; no prewarm needed.
+public static class PipePool
 {
-    private static PipePool instance;
-    private Queue<GameObject> pooledPipes = new Queue<GameObject>();
-    private int initialPoolSize = 20; // pre-warm with 20 pipes
-    private GameObject prefab;
+    private static readonly Queue<GameObject> _pool = new Queue<GameObject>();
 
-    void Awake()
+    // Maximum pooled pipes — 8 covers the max number ever on screen simultaneously
+    private const int MAX_POOL_SIZE = 8;
+
+    /// Returns a recycled pipeGroup (already SetActive(true)), or null if pool is empty.
+    public static GameObject GetPipeGroup()
     {
-        if (instance == null)
+        while (_pool.Count > 0)
         {
-            instance = this;
-            DontDestroyOnLoad(gameObject);
+            GameObject go = _pool.Dequeue();
+            if (go != null)
+            {
+                go.SetActive(true);
+                return go;
+            }
         }
-        else
-            Destroy(gameObject);
+        return null;
     }
 
-    public static void Initialize(GameObject pipePrefab, int poolSize = 20)
+    /// Returns a pipeGroup to the pool. Deactivates it but keeps its children intact for reuse.
+    public static void ReturnPipeGroup(GameObject pipeGroup)
     {
-        if (instance == null)
+        if (pipeGroup == null) return;
+        if (_pool.Count >= MAX_POOL_SIZE)
         {
-            GameObject poolObj = new GameObject("PipePool");
-            instance = poolObj.AddComponent<PipePool>();
-            DontDestroyOnLoad(poolObj);
+            Object.Destroy(pipeGroup);
+            return;
         }
-        instance.prefab = pipePrefab;
-        instance.initialPoolSize = poolSize;
-        instance.WarmPool();
+        pipeGroup.SetActive(false);
+        _pool.Enqueue(pipeGroup);
     }
 
-    void WarmPool()
+    /// Clears the pool (call on scene reload / quit).
+    public static void Clear()
     {
-        for (int i = 0; i < initialPoolSize; i++)
+        while (_pool.Count > 0)
         {
-            GameObject pipe = Instantiate(prefab);
-            pipe.SetActive(false);
-            pooledPipes.Enqueue(pipe);
-        }
-        Debug.Log($"PipePool: Warmed with {initialPoolSize} pipes");
-    }
-
-    public static GameObject GetPipe()
-    {
-        if (instance.pooledPipes.Count > 0)
-        {
-            GameObject pipe = instance.pooledPipes.Dequeue();
-            pipe.SetActive(true);
-            return pipe;
-        }
-        else
-        {
-            // Pool exhausted — create new (should rarely happen)
-            GameObject pipe = Instantiate(instance.prefab);
-            return pipe;
+            var go = _pool.Dequeue();
+            if (go != null) Object.Destroy(go);
         }
     }
 
-    public static void ReturnPipe(GameObject pipe)
-    {
-        pipe.SetActive(false);
-        instance.pooledPipes.Enqueue(pipe);
-    }
+    public static int PooledCount => _pool.Count;
 }

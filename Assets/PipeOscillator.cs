@@ -17,13 +17,21 @@ public class PipeOscillator : MonoBehaviour
         _phase   = Random.Range(0f, Mathf.PI * 2f); // each pipe starts at a random point in the wave
     }
 
+    /// Called by SpawnPipe when this oscillator is reused from PipePool — resets phase and origin.
+    public void ResetForReuse()
+    {
+        _originY = transform.position.y;
+        _phase   = Random.Range(0f, Mathf.PI * 2f);
+    }
+
     void Update()
     {
         if (GameBootstrap.Instance == null) return;
         if (GameBootstrap.Instance.IsGameOver) return;
         if (GameBootstrap.Instance.CurrentState != GameBootstrap.GameState.Playing) return;
 
-        float y = _originY + Mathf.Sin(Time.time * frequency * Mathf.PI * 2f + _phase) * amplitude;
+        _phase += Time.deltaTime * frequency * Mathf.PI * 2f * PowerUpManager.PipeSpeedMultiplier;
+        float y = _originY + Mathf.Sin(_phase) * amplitude;
         var p = transform.position;
         transform.position = new Vector3(p.x, y, p.z);
     }
