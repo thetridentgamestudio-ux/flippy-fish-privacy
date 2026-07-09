@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: bbe1fe21d7c1749ac9c8f27eaf0fce44
+guid: 8b47f1030fa4b41fea1d182a952f56ef
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -6497974143940400319
-    second: edited-photo (42)_0
+      213: 1337799331950586908
+    second: FishDefault_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -48,7 +48,7 @@ TextureImporter:
   compressionQuality: 50
   spriteMode: 2
   spriteExtrude: 1
-  spriteMeshType: 0
+  spriteMeshType: 1
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
   spritePixelsToUnits: 100
@@ -113,7 +113,7 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: edited-photo (42)_0
+      name: FishDefault_0
       rect:
         serializedVersion: 2
         x: 38
@@ -128,8 +128,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 14b62ce91fe82d5a0800000000000000
-      internalID: -6497974143940400319
+      spriteID: c1c6ba98761d09210800000000000000
+      internalID: 1337799331950586908
       vertices: []
       indices: 
       edges: []
@@ -148,7 +148,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      edited-photo (42)_0: -6497974143940400319
+      FishDefault_0: 1337799331950586908
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

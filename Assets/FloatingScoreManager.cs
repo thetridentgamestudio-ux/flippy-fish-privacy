@@ -6,6 +6,17 @@ public class FloatingScoreManager : MonoBehaviour
     private Transform player;
     private int currentScore = 0;
 
+    void Start()
+    {
+        // Pre-warm the TextMesh shader so the first pipe-pass doesn't trigger
+        // a shader compile and cause a visible frame hitch.
+        var dummy = new GameObject("_TextMeshPreWarm");
+        var tm = dummy.AddComponent<TextMesh>();
+        tm.text = "+1";
+        dummy.transform.position = new Vector3(-9999f, -9999f, 0f);
+        Destroy(dummy, 0.1f);
+    }
+
     void Update()
     {
         // Auto-find player (runtime safe)
@@ -19,8 +30,6 @@ public class FloatingScoreManager : MonoBehaviour
 
    public void AddScore(int amount)
 {
-    Debug.Log("FSM SCORE: +" + amount);
-
     if (player == null) return;
 
     Vector3 spawnPos = player.position + new Vector3(0.8f, 0.5f, 0);
@@ -34,7 +43,7 @@ tm.text = "+1";                 // ✅ +1 instead of 1
 tm.fontSize = 100;              // bigger font
 tm.characterSize = 0.08f;       // scale up
 tm.anchor = TextAnchor.MiddleCenter;
-tm.color = Color.blue;
+tm.color = Color.yellow;
 
 textObj.transform.localScale = Vector3.zero;
 StartCoroutine(ScalePop(textObj.transform));

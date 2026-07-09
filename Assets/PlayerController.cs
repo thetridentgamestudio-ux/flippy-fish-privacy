@@ -74,7 +74,7 @@ public float playerScale = 1.4f;
 // -----------------------------
 var col = gameObject.AddComponent<CircleCollider2D>();
 col.isTrigger = false;
-col.radius = 0.55f; // 🔥 tweak between 0.22 - 0.3 for best feel
+col.radius = 0.25f;
 col.offset = Vector2.zero;
 
         // -----------------------------
@@ -128,6 +128,8 @@ void Update()
 
     if (GameBootstrap.Instance.CurrentState != GameBootstrap.GameState.Playing)
         return;
+    if (GameBootstrap.Instance.IsPaused)
+        return;
     if (!IsAlive || GameBootstrap.Instance.IsGameOver)
         return;
 
@@ -151,6 +153,7 @@ void Update()
             flapForceToApply *= rapidFlapMultiplier;
 
         SwimUp(flapForceToApply);
+        if (PowerUpManager.HasDoubleJump()) TriggerDoubleJump();
         GhostRaceManager.Instance?.RecordTap(transform.position.y);
         PlayFlapSound(isRapid);
 
@@ -201,6 +204,26 @@ void Update()
 private float _speedBoostMultiplier = 1f;
 private Coroutine _speedBoostCoroutine;
 
+// DoubleJump: fires a second smaller boost 0.25s after each tap while active
+private Coroutine _doubleJumpCoroutine;
+
+public void TriggerDoubleJump()
+{
+    if (_doubleJumpCoroutine != null) StopCoroutine(_doubleJumpCoroutine);
+    _doubleJumpCoroutine = StartCoroutine(DoubleJumpRoutine());
+}
+
+IEnumerator DoubleJumpRoutine()
+{
+    yield return new WaitForSeconds(0.25f);
+    if (!IsAlive) yield break;
+    if (GameBootstrap.Instance?.CurrentState != GameBootstrap.GameState.Playing) yield break;
+    // Second jump at 70% force — noticeable boost without being overpowered
+    rb.linearVelocity = new Vector2(0, Mathf.Max(rb.linearVelocity.y, 0f));
+    rb.AddForce(Vector2.up * jumpForce * 0.7f, ForceMode2D.Impulse);
+    _doubleJumpCoroutine = null;
+}
+
 public void ApplySpeedBoost(float duration)
 {
     if (_speedBoostCoroutine != null) StopCoroutine(_speedBoostCoroutine);
@@ -209,10 +232,16 @@ public void ApplySpeedBoost(float duration)
 
 IEnumerator SpeedBoostCoroutine(float duration)
 {
-    _speedBoostMultiplier = 1.55f; // 55% stronger jump — fish lunges visibly faster
+    _speedBoostMultiplier = 2.0f; // 2× jump force — very noticeable lunge
+    // Tint fish yellow-orange for the duration so player knows it's active
+    var sr = GetComponent<SpriteRenderer>();
+    if (sr != null) sr.color = new Color(1f, 0.85f, 0.2f);
+
     yield return new WaitForSeconds(duration);
+
     _speedBoostMultiplier = 1f;
     _speedBoostCoroutine  = null;
+    if (sr != null) sr.color = Color.white;
 }
 
 //   void CreateFin()
@@ -284,8 +313,15 @@ IEnumerator SpeedBoostCoroutine(float duration)
 
     if (!isGround && !isObstacle) return;
 
-    // Invincibility only protects against pipes — ground always kills
+    // Invincibility and Shield only protect against pipes — ground always kills
     if (isObstacle && isInvincible) return;
+    if (isObstacle && PowerUpManager.HasShield())
+    {
+        PowerUpManager.ConsumeShield(); // one-time use
+        CameraShake.ShakeOnCollision(0.1f, 0.08f);
+        StartCoroutine(ShieldFlash());
+        return;
+    }
 
     if (collisionSound != null)
         audioSource.PlayOneShot(collisionSound);
@@ -312,6 +348,27 @@ IEnumerator SpeedBoostCoroutine(float duration)
         if (sr != null) sr.color = new Color(1f, 0.2f, 0.2f);
         yield return new WaitForSeconds(0.03f);
     }
+
+    // ── Phase 1b: Skeleton X-ray (~0.45s) ────────────────────────────────
+    Sprite originalSprite = sr != null ? sr.sprite : null;
+    Sprite skeletonSprite = Resources.Load<Sprite>("fish_skeleton");
+    if (sr != null && skeletonSprite != null)
+    {
+        sr.sprite = skeletonSprite;
+        sr.color  = new Color(1f, 1f, 1f, 1f); // bright white X-ray look
+        // quick electric flicker on the skeleton
+        for (int i = 0; i < 4; i++)
+        {
+            sr.color = new Color(0.6f, 1f, 1f, 1f); // cyan-white
+            yield return new WaitForSeconds(0.05f);
+            sr.color = Color.white;
+            yield return new WaitForSeconds(0.05f);
+        }
+        yield return new WaitForSeconds(0.15f); // hold skeleton visible
+        // restore original sprite
+        if (originalSprite != null) sr.sprite = originalSprite;
+    }
+
     // Go grey for the tumble — visually signals death before game-over screen
     if (sr != null) sr.color = new Color(0.45f, 0.45f, 0.45f, 1f);
 
@@ -393,6 +450,20 @@ void FixedUpdate()
     float maxDownSpeed = -10f;
     rb.linearVelocity = new Vector2(0f, Mathf.Clamp(rb.linearVelocity.y, maxDownSpeed, maxUpSpeed));
 }
+    IEnumerator ShieldFlash()
+    {
+        var sr = GetComponent<SpriteRenderer>();
+        // Flash cyan 3 times to show shield absorbed the hit
+        for (int i = 0; i < 3; i++)
+        {
+            if (sr != null) sr.color = new Color(0.2f, 1f, 0.9f);
+            yield return new WaitForSeconds(0.05f);
+            if (sr != null) sr.color = Color.white;
+            yield return new WaitForSeconds(0.05f);
+        }
+        if (sr != null) sr.color = Color.white;
+    }
+
     public void Die()
 {
     if (!IsAlive) return;
@@ -422,9 +493,21 @@ void FixedUpdate()
         rb.gravityScale = 0.35f;
         rb.freezeRotation = true;
 
-        // Re-enable sprite hidden during death exit
+        // Re-enable sprite and reset any tint left by SpeedBoost or death sequence
         var sr = GetComponent<SpriteRenderer>();
-        if (sr != null) sr.enabled = true;
+        if (sr != null)
+        {
+            sr.enabled = true;
+            sr.color   = Color.white;
+        }
+
+        // Stop any lingering speed boost coroutine and reset multiplier
+        if (_speedBoostCoroutine != null)
+        {
+            StopCoroutine(_speedBoostCoroutine);
+            _speedBoostCoroutine  = null;
+            _speedBoostMultiplier = 1f;
+        }
 
         IsAlive = true;
     }

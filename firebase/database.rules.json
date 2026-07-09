@@ -1,0 +1,36 @@
+{
+  "rules": {
+    "leaderboard": {
+      // Only the Cloud Function (admin SDK) can write to leaderboard.
+      // Clients can read for displaying the top scores.
+      ".read": true,
+      ".write": false,
+      "$entry": {
+        ".validate": "newData.hasChildren(['username', 'score', 'timestamp'])",
+        "username": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 32"
+        },
+        "score": {
+          ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 999"
+        },
+        "timestamp": {
+          ".validate": "newData.isString()"
+        },
+        "sessionSeconds": {
+          ".validate": "!newData.exists() || newData.isNumber()"
+        },
+        "$other": { ".validate": false }
+      }
+    },
+    "_sessions": {
+      // Internal session dedup store — only Cloud Function (admin) can read/write.
+      ".read": false,
+      ".write": false
+    },
+    "_rateLimit": {
+      // Internal rate limit store — only Cloud Function (admin) can read/write.
+      ".read": false,
+      ".write": false
+    }
+  }
+}

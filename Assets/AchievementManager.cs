@@ -89,7 +89,6 @@ public class AchievementManager : MonoBehaviour
         AddAchievement("master_mode_60", "Master", "Score 60+ on Master", 60, 500);
 
         SaveAchievements();
-        Debug.Log($"Generated {achievements.Count} achievements");
     }
 
     void AddAchievement(string id, string title, string desc, int goal, int reward)

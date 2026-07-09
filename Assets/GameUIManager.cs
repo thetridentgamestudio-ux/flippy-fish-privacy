@@ -145,7 +145,6 @@ void CreateUsernameUI()
 {
     username = string.IsNullOrEmpty(usernameInput.text) ? "Player" : usernameInput.text;
     usernamePanel.SetActive(false);
-    Debug.Log("Game Started with username: " + username);
 
     // Resume game if paused
     Time.timeScale = 1f;

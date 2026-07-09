@@ -12,9 +12,9 @@ public class DarknessMode : MonoBehaviour
     // ── Tweak these in one place ──────────────────────────────────────────────
     const int   TRIGGER_SCORE  = 20;   // kicks in after oscillating pipes (score 15)
     const float FADE_DURATION  = 2.5f; // seconds to reach full darkness
-    const float MAX_DARKNESS   = 0.97f;
-    const float INNER_RADIUS   = 0.13f; // spotlight clear zone (UV-space, aspect-corrected)
-    const float OUTER_RADIUS   = 0.22f; // falloff end
+    const float MAX_DARKNESS   = 0.92f; // very dark but not pitch black
+    const float INNER_RADIUS   = 0.12f; // spotlight clear zone (UV-space, aspect-corrected)
+    const float OUTER_RADIUS   = 0.20f; // slightly tighter falloff than original
 
     // ── Runtime state ─────────────────────────────────────────────────────────
     bool    _active;
@@ -40,7 +40,7 @@ public class DarknessMode : MonoBehaviour
     void Start()
     {
         _canvas = FindFirstObjectByType<Canvas>();
-        if (_canvas == null) { Debug.LogError("[DarknessMode] No Canvas found"); return; }
+        if (_canvas == null) { return; }
         BuildOverlay();
     }
 
@@ -83,12 +83,11 @@ public class DarknessMode : MonoBehaviour
         if (shader == null)
         {
             // Fallback: plain dark Image if shader not found
-            Debug.LogWarning("[DarknessMode] DarknessOverlay shader not found — using plain fallback");
             var fallback = new GameObject("DarknessFallback");
             fallback.transform.SetParent(_canvas.transform, false);
             fallback.transform.SetAsLastSibling();
             var img = fallback.AddComponent<Image>();
-            img.color = new Color(0, 0, 0, 0.88f);
+            img.color = new Color(0, 0, 0, 0.92f);
             img.raycastTarget = false;
             var fRT = fallback.GetComponent<RectTransform>();
             fRT.anchorMin = Vector2.zero; fRT.anchorMax = Vector2.one;

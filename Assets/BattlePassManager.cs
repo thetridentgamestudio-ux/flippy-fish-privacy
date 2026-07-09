@@ -143,10 +143,15 @@ public class BattlePassManager : MonoBehaviour
             PlayerPrefs.SetInt("Gems", PlayerPrefs.GetInt("Gems", 0) + r.amount);
     }
 
+    // PurchasePremium() is intentionally disabled until Unity IAP is integrated.
+    // Calling it directly would grant premium with no payment validation.
+    // Re-enable only after real purchase receipt verification is in place.
+    /*
     public static void PurchasePremium()
     {
         Instance._isPremium = true;
         PlayerPrefs.SetInt(KEY_PREMIUM, 1);
         PlayerPrefs.Save();
     }
+    */
 }

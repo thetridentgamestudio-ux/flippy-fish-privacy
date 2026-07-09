@@ -3,14 +3,20 @@ using TMPro;
 
 public class ScoreBubble : MonoBehaviour
 {
-    private float floatSpeed;
-    private float lifetime;
-    private float timer = 0f;
+    private float        floatSpeed;
+    private float        lifetime;
+    private float        timer = 0f;
+    private TextMeshPro  _tmp;
+
+    void Awake()
+    {
+        _tmp = GetComponent<TextMeshPro>();
+    }
 
     public void Initialize(float speed, float life)
     {
         floatSpeed = speed;
-        lifetime = life;
+        lifetime   = life;
     }
 
     void Update()
@@ -18,14 +24,11 @@ public class ScoreBubble : MonoBehaviour
         transform.position += Vector3.up * floatSpeed * Time.deltaTime;
         timer += Time.deltaTime;
 
-        // fade out gradually
-        float alpha = Mathf.Lerp(1f, 0f, timer / lifetime);
-        TextMeshPro tmp = GetComponent<TextMeshPro>();
-        if (tmp != null)
+        if (_tmp != null)
         {
-            Color c = tmp.color;
-            c.a = alpha;
-            tmp.color = c;
+            Color c = _tmp.color;
+            c.a = Mathf.Lerp(1f, 0f, timer / lifetime);
+            _tmp.color = c;
         }
 
         if (timer >= lifetime)

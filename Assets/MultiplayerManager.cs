@@ -779,7 +779,6 @@ public class MultiplayerManager : MonoBehaviour
         State = MPState.Idle;
         IsMultiplayerGame = false;
         _opponentAlive = true;
-        _isBotMatch    = false;
 
         if (_syncCoroutine    != null) StopCoroutine(_syncCoroutine);
         if (_quickPlayTimeout != null) StopCoroutine(_quickPlayTimeout);
@@ -805,6 +804,7 @@ public class MultiplayerManager : MonoBehaviour
         _roomStateListener = null;
         _matchListener     = null;
         _myMatchId         = null;
+        _isBotMatch        = false; // reset after conditional checks that depend on it
     }
 
     IEnumerator CleanupRoom(float delay)
@@ -819,7 +819,6 @@ public class MultiplayerManager : MonoBehaviour
         yield return new WaitForSecondsRealtime(seconds);
         if (State == MPState.WaitingForGuest)
         {
-            Debug.Log("[MP] Room timeout — no guest joined.");
             AbortMultiplayer();
             if (_roomRef != null) _roomRef.RemoveValueAsync();
         }

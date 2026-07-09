@@ -23,19 +23,10 @@ public class PipeColliderAdjuster : MonoBehaviour
         // Full sprite bounds including the flare
         Bounds spriteBounds = spriteRenderer.sprite.bounds;
 
-        // Convert sprite local bounds to world size with local scale
-        Vector3 scaledSize = new Vector3(
-            spriteBounds.size.x * transform.localScale.x,
-            spriteBounds.size.y * transform.localScale.y,
-            1f
-        );
+        // sprite.bounds is in local space of the sprite (pixels / PPU), matching
+        // BoxCollider2D.size which also expects local space — no scale multiplication needed.
+        innerCollider.size   = new Vector2(spriteBounds.size.x, spriteBounds.size.y);
+        innerCollider.offset = new Vector2(spriteBounds.center.x, spriteBounds.center.y);
 
-        // Center is usually the same as sprite pivot
-        Vector3 offset = spriteBounds.center;
-
-        innerCollider.size = new Vector2(scaledSize.x, scaledSize.y);
-        innerCollider.offset = new Vector2(offset.x, offset.y);
-
-        Debug.Log($"[Pipe] Inner Collider adjusted to sprite bounds: size={innerCollider.size}, offset={innerCollider.offset}");
     }
 }

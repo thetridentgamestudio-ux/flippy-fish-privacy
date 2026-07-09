@@ -58,8 +58,6 @@ public class BackgroundObjectSpawner : MonoBehaviour
             Sprite spr = Resources.Load<Sprite>("BgObjects/" + name);
             if (spr != null)
                 sprites.Add(spr);
-            else
-                Debug.LogWarning("BackgroundObjectSpawner: Could not load BgObjects/" + name);
         }
 
         // Load floating sprites dynamically — tries Fish_1, Fish_2... until not found
@@ -74,10 +72,6 @@ public class BackgroundObjectSpawner : MonoBehaviour
                     break; // stop when no more found
             }
         }
-        Debug.Log($"BackgroundObjectSpawner: loaded {floatingSprites.Count} floating sprites");
-
-        Debug.Log("BackgroundObjectSpawner: loaded " + sprites.Count + " sprites");
-        Debug.Log($"BackgroundObjectSpawner: camRight={camRight} groundY={groundY}");
 
         // Spawn a few objects immediately so screen isn't empty at start
         // Spawn 1 object initially off screen right
@@ -201,7 +195,6 @@ public class BackgroundObjectSpawner : MonoBehaviour
         
         obj.transform.localScale = new Vector3(scale, scale, 1f);
 
-        Debug.Log($"Spawned {spr.name} at pos=({spawnX:F1},{randomY:F1}) layer={sr.sortingLayerName}");
 
         // Random transparency — distant objects are more transparent
         Color c = sr.color;

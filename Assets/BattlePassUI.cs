@@ -311,15 +311,15 @@ public static class BattlePassUI
         else img.color = COL_GOLD;
         var btn = premBtn.AddComponent<Button>();
         btn.targetGraphic = img;
-        btn.onClick.AddListener(() =>
-        {
-            BattlePassManager.PurchasePremium();
-            // Rebuild panel to show premium rewards
-            Show();
-        });
+        btn.interactable = false; // Disabled until Unity IAP is integrated
+        // btn.onClick.AddListener(() =>
+        // {
+        //     BattlePassManager.PurchasePremium();
+        //     Show();
+        // });
 
         var lbl = MakeTMP("PremLbl", premBtn.transform,
-            "⭐  GO PREMIUM  —  Unlock all rewards", 22, FontStyles.Bold, new Color(0.08f, 0.04f, 0f));
+            "⭐  GO PREMIUM  —  Coming Soon!", 22, FontStyles.Bold, new Color(0.08f, 0.04f, 0f));
         Stretch(lbl.gameObject);
         lbl.alignment = TextAlignmentOptions.Center;
     }

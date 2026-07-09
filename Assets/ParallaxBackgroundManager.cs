@@ -31,7 +31,7 @@ public class ParallaxBackgroundManager : MonoBehaviour
         for (int i = 1; i <= 5; i++)
         {
             Sprite spr = Resources.Load<Sprite>("BgEvent" + i);
-            if (spr != null) { playlist.Add(spr); Debug.Log("Loaded BgEvent" + i); }
+            if (spr != null) { playlist.Add(spr); }
         }
         if (playlist.Count == 0)
             foreach (var l in layers)

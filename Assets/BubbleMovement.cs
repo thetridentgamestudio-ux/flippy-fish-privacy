@@ -3,41 +3,46 @@ using UnityEngine;
 public class BubbleMovement : MonoBehaviour
 {
     [Header("Movement Settings")]
-    public float lifetime = 4f;    // max lifetime
-    public float speedY = 1f;      // upward speed
-    public float driftX = 0f;      // small horizontal drift
+    public float lifetime      = 4f;
+    public float speedY        = 1f;
+    public float driftX        = 0f;
 
     [Header("Wave Motion")]
-    public bool enableWave = true;
-    public float waveAmplitude = 0.05f;  // how much it swings left/right
-    public float waveFrequency = 1.5f;   // speed of swing
+    public bool  enableWave     = true;
+    public float waveAmplitude  = 0.05f;
+    public float waveFrequency  = 1.5f;
 
-    private float elapsedTime = 0f;
-    private Vector3 startPos;
+    private float         _elapsed;
+    private Vector3       _startPos;
+    private BubbleSpawner _spawner;
 
-    void Start()
+    // Called by BubbleSpawner after pulling from pool
+    public void SetSpawner(BubbleSpawner spawner) => _spawner = spawner;
+
+    void OnEnable()
     {
-        startPos = transform.position;
+        _elapsed  = 0f;
+        _startPos = transform.position;
     }
 
     void Update()
     {
-        // Vertical movement
-        float deltaY = speedY * Time.deltaTime;
-
-        // Horizontal drift + wave oscillation
         float deltaX = driftX * Time.deltaTime;
         if (enableWave)
-        {
-            deltaX += Mathf.Sin(Time.time * waveFrequency + startPos.y) * waveAmplitude * Time.deltaTime;
-        }
+            deltaX += Mathf.Sin(Time.time * waveFrequency + _startPos.y) * waveAmplitude * Time.deltaTime;
 
-        transform.Translate(deltaX, deltaY, 0);
+        transform.Translate(deltaX, speedY * Time.deltaTime, 0);
 
-        elapsedTime += Time.deltaTime;
-        if (elapsedTime >= lifetime)
-        {
+        _elapsed += Time.deltaTime;
+        if (_elapsed >= lifetime)
+            ReturnOrDestroy();
+    }
+
+    void ReturnOrDestroy()
+    {
+        if (_spawner != null)
+            _spawner.ReturnToPool(gameObject);
+        else
             Destroy(gameObject);
-        }
     }
 }

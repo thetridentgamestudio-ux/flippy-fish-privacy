@@ -56,7 +56,11 @@ public GameObject restartButton;
     private GameObject _scoreBoxRoot;
     [Header("Sprites")]
     public Sprite playerSprite;
-    //private bool isPaused = false;
+    private bool _isPaused = false;
+    public bool IsPaused => _isPaused;
+    private GameObject _pauseButtonObj;
+    private GameObject _pauseOverlay;
+    private Image _pauseSoundBtnImage;
     TextMeshProUGUI usernameText;
     
      public int Score = 0;
@@ -201,7 +205,9 @@ CreateUsernameText();
     // -----------------------------
     // 5. Load high score
     // -----------------------------
-    highScore = PlayerPrefs.GetInt("HIGH_SCORE", 0);
+    // Load via PlayerDataStore (migrates from PlayerPrefs automatically on first run)
+    PlayerDataStore.Load();
+    highScore = PlayerDataStore.Data.bestScore;
 
     ////debug.Log("[GameBootstrap] Awake complete. GameOver TMP texts initialized.");
 }
@@ -231,7 +237,15 @@ public float obstacleVerticalScale = 0.7f; // 1 = original height, <1 = shorter,
     [System.Obsolete]
     void Start()
     {
-        mainCanvas = Object.FindFirstObjectByType<Canvas>();
+        // Prefer the canvas configured with ScaleWithScreenSize (1080×1920 reference) so all
+        // GameBootstrap UI (quest panel, score, game over) uses the same coordinate space as Firebase UI
+        foreach (var c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+        {
+            var sc = c.GetComponent<CanvasScaler>();
+            if (sc != null && sc.uiScaleMode == CanvasScaler.ScaleMode.ScaleWithScreenSize)
+            { mainCanvas = c; break; }
+        }
+        if (mainCanvas == null) mainCanvas = Object.FindFirstObjectByType<Canvas>();
         Camera.main.orthographicSize = 12.5f;
         // Move camera up — makes bottom pillar appear to rise from deeper seabed
         var camT = Camera.main.transform;
@@ -241,7 +255,12 @@ public float obstacleVerticalScale = 0.7f; // 1 = original height, <1 = shorter,
     {
         GameObject canvasGO = new GameObject("Canvas");
         mainCanvas = canvasGO.AddComponent<Canvas>();
-        canvasGO.AddComponent<CanvasScaler>();
+        mainCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        var scaler = canvasGO.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1080, 1920);
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight = 1f;
         canvasGO.AddComponent<GraphicRaycaster>();
     }
     lastGapCenter = 1.5f;
@@ -264,7 +283,7 @@ Time.timeScale = 0f;
    ////debug.Log("GROUND CREATED");
 
 
-        highScore = PlayerPrefs.GetInt("HIGH_SCORE", 0);
+        highScore = PlayerDataStore.Data.bestScore;
 
         // Spawn first safe pipe
         SpawnPipe(20f);
@@ -288,6 +307,9 @@ Time.timeScale = 0f;
 
         // Show first-launch onboarding once — after all UI is created
         OnboardingOverlay.ShowIfNeeded(mainCanvas);
+
+        // Initialize power-up HUD
+        PowerUpHUD.InitializeHUD(mainCanvas);
 
         // Pre-warm expensive lookups so AddScore never stalls on first pipe pass
         _cachedFbm = FindObjectOfType<FirebaseGameManager>();
@@ -317,11 +339,16 @@ CheckCoinCollection();
 
     private const float COIN_COLLECT_RADIUS = 2.5f;
 
+    private const float MAGNET_RANGE  = 9f;
+    private const float MAGNET_SPEED  = 14f;
+
     private void CheckCoinCollection()
     {
         if (player == null) return;
 
-        Vector2 playerPos = player.transform.position;
+        Vector2 playerPos   = player.transform.position;
+        bool magnetActive   = PowerUpManager.HasCoinMagnet();
+        float collectRadius = magnetActive ? COIN_COLLECT_RADIUS * 2f : COIN_COLLECT_RADIUS;
 
         for (int i = PipeCoin.Active.Count - 1; i >= 0; i--)
         {
@@ -329,7 +356,16 @@ CheckCoinCollection();
             if (coin == null) { PipeCoin.Active.RemoveAt(i); continue; }
             if (coin.Collected) continue;
 
-            if (Vector2.Distance(playerPos, coin.transform.position) < COIN_COLLECT_RADIUS)
+            float dist = Vector2.Distance(playerPos, coin.transform.position);
+
+            // Magnet: pull coins within range toward player each frame
+            if (magnetActive && dist < MAGNET_RANGE)
+            {
+                Vector3 dir = ((Vector3)playerPos - coin.transform.position).normalized;
+                coin.transform.position += dir * MAGNET_SPEED * Time.deltaTime;
+            }
+
+            if (dist < collectRadius)
                 coin.Collect();
         }
     }
@@ -416,8 +452,6 @@ void CreateBackground()
         AudioClip musicClip = Resources.Load<AudioClip>("Sounds/BackgroundMusic");
         if (musicClip != null)
             musicSource.clip = musicClip;
-        else
-            Debug.LogWarning("BackgroundMusic not found in Resources/Sounds/");
         bgMusicSource = musicSource;
         bgMusicSource.loop = true;
         // Set exact loop start/end to eliminate gap
@@ -499,8 +533,19 @@ void SpawnPipe(float spawnX)
 
     float speedMultiplier = 0f; // kept for pipe mover
 
-    GameObject pipeGroup = new GameObject("PipeGroup");
+    // Try to reuse a pooled pipeGroup; fall back to creating a fresh one
+    GameObject pipeGroup = PipePool.GetPipeGroup();
+    bool _isReusingPipeGroup = pipeGroup != null;
+    if (!_isReusingPipeGroup)
+        pipeGroup = new GameObject("PipeGroup");
     pipeGroup.transform.position = new Vector3(spawnX, 0, 0);
+
+    // On reuse: disable any leftover PipeOscillator until we decide if this pipe needs one
+    if (_isReusingPipeGroup)
+    {
+        var existingOsc = pipeGroup.GetComponent<PipeOscillator>();
+        if (existingOsc != null) existingOsc.enabled = false;
+    }
 
     // =====================================================
     // GAP CONTROL — tier-based with smoothing
@@ -516,7 +561,7 @@ void SpawnPipe(float spawnX)
         currentGap = Mathf.Max(currentGap, 3.2f);
 
     // Hard floor — never smaller than master tier minimum
-    currentGap = Mathf.Max(currentGap, 2.8f); // increased gap for larger player
+    currentGap = Mathf.Max(currentGap, 3.0f); // hard floor — gap never goes below this
     lastGap = currentGap;
 
     // =====================================================
@@ -636,35 +681,28 @@ void SpawnPipe(float spawnX)
 
     if (topSprite != null)
     {
-        topPipe = CreatePipe(
-            "TopObstacle",
-            Vector3.zero,
-            topSprite,
-            true
-        );
+        if (_isReusingPipeGroup && pipeGroup.transform.childCount > 0)
+        {
+            topPipe = pipeGroup.transform.GetChild(0).gameObject;
+            ReconfigurePipeChild(topPipe, topSprite, true);
+        }
+        else
+        {
+            topPipe = CreatePipe("TopObstacle", Vector3.zero, topSprite, true);
+            topPipe.transform.SetParent(pipeGroup.transform, true);
+        }
 
         topPipe.tag = "Obstacle";
 
-        float originalTopHeight =
-            topPipe.GetComponent<SpriteRenderer>()
-            .bounds.size.y;
-
-        // Bottom edge of top pipe = gapTop
+        float originalTopHeight = topPipe.GetComponent<SpriteRenderer>().bounds.size.y;
         float topPipeY = gapTop + (originalTopHeight / 2f);
 
-        // Snap upward so top pipe always reaches/overlaps the screen top (no gap at ceiling)
         float screenTopEdge = Camera.main.orthographicSize;
         float topPipeTopEdge = topPipeY + (originalTopHeight / 2f);
         if (topPipeTopEdge < screenTopEdge)
-            topPipeY += (screenTopEdge - topPipeTopEdge) + 0.1f; // 0.1f overshoot to hide seam
+            topPipeY += (screenTopEdge - topPipeTopEdge) + 0.1f;
 
-        topPipe.transform.position =
-            new Vector3(
-                spawnX,
-                topPipeY,
-                0
-            );
-        // Top pipe further back in layer order
+        topPipe.transform.position = new Vector3(spawnX, topPipeY, 0);
         var tpSR = topPipe.GetComponent<SpriteRenderer>();
         if (tpSR != null) tpSR.sortingOrder = 1;
     }
@@ -677,34 +715,27 @@ void SpawnPipe(float spawnX)
 
     if (bottomSprite != null)
     {
-        bottomPipe = CreatePipe(
-            "BottomObstacle",
-            Vector3.zero,
-            bottomSprite,
-            false
-        );
+        if (_isReusingPipeGroup && pipeGroup.transform.childCount > 1)
+        {
+            bottomPipe = pipeGroup.transform.GetChild(1).gameObject;
+            ReconfigurePipeChild(bottomPipe, bottomSprite, false);
+        }
+        else
+        {
+            bottomPipe = CreatePipe("BottomObstacle", Vector3.zero, bottomSprite, false);
+            bottomPipe.transform.SetParent(pipeGroup.transform, true);
+        }
 
         bottomPipe.tag = "Obstacle";
 
-        float originalBottomHeight =
-            bottomPipe.GetComponent<SpriteRenderer>()
-            .bounds.size.y;
-
-        // Top edge of bottom pipe = gapBottom
+        float originalBottomHeight = bottomPipe.GetComponent<SpriteRenderer>().bounds.size.y;
         float bottomPipeY = gapBottom - (originalBottomHeight / 2f);
 
-        // Snap downward so bottom pipe always sits on/below the ground (no floating gap)
         float bottomPipeBottomEdge = bottomPipeY - (originalBottomHeight / 2f);
         if (bottomPipeBottomEdge > groundTop)
-            bottomPipeY -= (bottomPipeBottomEdge - groundTop) + 0.1f; // 0.1f overshoot into ground
+            bottomPipeY -= (bottomPipeBottomEdge - groundTop) + 0.1f;
 
-        bottomPipe.transform.position =
-            new Vector3(
-                spawnX,
-                bottomPipeY,
-                1.5f  // slightly deeper — rises from seabed visually
-            );
-        // Bottom pipe in front of top pipe, behind seabed (20) and player (10)
+        bottomPipe.transform.position = new Vector3(spawnX, bottomPipeY, 1.5f);
         var bpSR = bottomPipe.GetComponent<SpriteRenderer>();
         if (bpSR != null) bpSR.sortingOrder = 5;
     }
@@ -723,19 +754,21 @@ void SpawnPipe(float spawnX)
     // MOVEMENT
     // =====================================================
 
-    Moving moving = pipeGroup.AddComponent<Moving>();
+    Moving moving = pipeGroup.GetComponent<Moving>() ?? pipeGroup.AddComponent<Moving>();
+    moving.returnToPool = true; // return to PipePool when it exits screen
+    moving.speed = isReliefPipe ? _currentSpeed * 0.9f : _currentSpeed;
 
-    moving.speed = isReliefPipe
-        ? _currentSpeed * 0.9f
-        : _currentSpeed;
-
-    // Phase 1: vertical oscillation — non-relief pipes only, score >= 15
+    // Vertical oscillation — non-relief only, score >= 15
     if (!isReliefPipe && Score >= 15)
     {
-        var osc = pipeGroup.AddComponent<PipeOscillator>();
-        if (Score >= 40)       { osc.amplitude = 4.0f; osc.frequency = 0.65f; }
-        else if (Score >= 25)  { osc.amplitude = 3.0f; osc.frequency = 0.55f; }
-        else                   { osc.amplitude = 2.0f; osc.frequency = 0.45f; }
+        var osc = pipeGroup.GetComponent<PipeOscillator>() ?? pipeGroup.AddComponent<PipeOscillator>();
+        osc.enabled = true;
+        osc.ResetForReuse(); // resets origin and phase so pooled oscillators start fresh
+        // Amplitude kept humanly trackable: peak pipe velocity = amp × 2π × freq
+        // Player can realistically follow ~4 units/sec — values below stay within that
+        if (Score >= 40)       { osc.amplitude = 1.8f; osc.frequency = 0.45f; } // ~5 u/s peak
+        else if (Score >= 25)  { osc.amplitude = 1.3f; osc.frequency = 0.40f; } // ~3 u/s peak
+        else                   { osc.amplitude = 0.8f; osc.frequency = 0.35f; } // ~1.7 u/s peak
     }
 
     // =====================================================
@@ -758,35 +791,33 @@ void SpawnPipe(float spawnX)
     // SCORE TRIGGER
     // =====================================================
 
-    GameObject trigger = new GameObject("ScoreTrigger");
-
-    trigger.transform.position =
-        new Vector3(
-            spawnX,
-            gapCenter,
-            0
-        );
-
-    trigger.transform.SetParent(
-        pipeGroup.transform,
-        true
-    );
-
-    var col = trigger.AddComponent<BoxCollider2D>();
-
-    col.isTrigger = true;
-    col.size = new Vector2(
-        0.5f,
-        currentGap
-    );
-
-    var st = trigger.AddComponent<ScoreTrigger>();
-    st.bootstrap = this;
+    GameObject trigger;
+    if (_isReusingPipeGroup && pipeGroup.transform.childCount > 2)
+    {
+        trigger = pipeGroup.transform.GetChild(2).gameObject;
+        trigger.transform.position = new Vector3(spawnX, gapCenter, 0);
+        var existingCol = trigger.GetComponent<BoxCollider2D>();
+        if (existingCol != null) existingCol.size = new Vector2(0.5f, currentGap);
+        // Reset scored flag — without this, every reused pipe skips scoring
+        var existingSt = trigger.GetComponent<ScoreTrigger>();
+        if (existingSt != null) existingSt.ResetScored();
+    }
+    else
+    {
+        trigger = new GameObject("ScoreTrigger");
+        trigger.transform.position = new Vector3(spawnX, gapCenter, 0);
+        trigger.transform.SetParent(pipeGroup.transform, true);
+        var col = trigger.AddComponent<BoxCollider2D>();
+        col.isTrigger = true;
+        col.size = new Vector2(0.5f, currentGap);
+        var st = trigger.AddComponent<ScoreTrigger>();
+        st.bootstrap = this;
+    }
 
     // =====================================================
     // POWER-UP SPAWN
     // =====================================================
-    TrySpawnPowerUpNearPipe(spawnX, gapCenter);
+    TrySpawnPowerUpNearPipe(spawnX, gapCenter, currentGap);
 
     // =====================================================
     // PHASE 3: COIN IN GAP
@@ -841,6 +872,31 @@ void SpawnPipe(float spawnX)
             bottomPipe.GetComponent<SpriteRenderer>().bounds.size.y / 2f;
     }
 }
+/// Updates an existing pooled pipe child in-place: new sprite, recomputed scale, collider size.
+/// Mirrors the scale math in CreatePipe so world-space bounds stay consistent.
+void ReconfigurePipeChild(GameObject pipe, Sprite sprite, bool flipY)
+{
+    const float targetHeight = 16f;
+    const float targetWidth  = 5.0f;
+
+    var sr = pipe.GetComponent<SpriteRenderer>();
+    if (sr != null && sprite != null)
+    {
+        sr.sprite = sprite;
+        Vector2 spriteSize = sprite.bounds.size;
+        float scaleY = targetHeight / spriteSize.y;
+        float scaleX = targetWidth  / spriteSize.x;
+        pipe.transform.localScale = flipY
+            ? new Vector3(scaleX, -scaleY, 1f)
+            : new Vector3(scaleX,  scaleY, 1f);
+
+        var col = pipe.GetComponent<BoxCollider2D>();
+        if (col != null) col.size = spriteSize;
+    }
+
+    pipe.tag = "Obstacle";
+}
+
 GameObject CreatePipe(string name, Vector3 pos, Sprite sprite, bool flipY)
 
 {
@@ -963,10 +1019,13 @@ Sprite MakeRoundedRectSprite(int width = 512, int height = 160, int radius = 50)
     SkinManager.OnPipePassed(Score);
     CoinsThisRun++;
 
-    // Single best score check — SetInt only (no Save — disk flush waits until TriggerGameOver)
-    int best = PlayerPrefs.GetInt("BestScore", 0);
-    if (Score > best)
+    // Single best score check — update store + PlayerPrefs backup (flush waits until TriggerGameOver)
+    if (Score > PlayerDataStore.Data.bestScore)
+    {
+        PlayerDataStore.Data.bestScore = Score;
         PlayerPrefs.SetInt("BestScore", Score);
+        PlayerPrefs.SetInt("HIGH_SCORE", Score);
+    }
 
     // Do NOT refresh coin display here — per-pipe coins are silent.
     // Display only updates when player collects a visible gold coin (PipeCoin.Collect).
@@ -987,6 +1046,10 @@ Sprite MakeRoundedRectSprite(int width = 512, int height = 160, int radius = 50)
     // Phase 1: speed spike at score milestones
     SpeedSpikeManager.Instance?.CheckMilestone(Score);
 
+    // Analytics — milestone checkpoints (not every pipe, to stay within Firebase quota)
+    if (Score == 10 || Score == 25 || Score == 50 || Score == 100)
+        AnalyticsEvents.LogPipeMilestone(Score);
+
     // Phase 2: darkness mode — on 20-30, off 30-50, on 50-70
     if (Score == 20 || Score == 50) DarknessMode.Instance?.Activate();
     if (Score == 30 || Score == 70) DarknessMode.Instance?.Deactivate();
@@ -1001,15 +1064,20 @@ public void CollectGoldCoin()
     RunGoldCoins++;
     SkinManager.AddCoins(1);
     // Show startTotal + goldCoins so display goes up by exactly 1 per pickup
-    if (_cachedFbm != null) _cachedFbm.ShowRunCoins(_coinsAtRunStart + RunGoldCoins);
+    if (_cachedFbm != null) _cachedFbm.ShowRunCoins(RunGoldCoins);
 }
 
 public void TriggerGameOver()
 {
     if (IsGameOver) return;
 
+    // If the player quits while paused, restore time before proceeding
+    HidePauseButton();
+
     IsGameOver = true;
     CurrentState = GameState.GameOver;
+
+    PowerUpHUD.ClearAll(); // hide any active power-up cards on death
 
     // Phase 1: cancel any active speed spike
     SpeedSpikeManager.Instance?.StopSpike();
@@ -1041,6 +1109,7 @@ public void TriggerGameOver()
     if (MultiplayerManager.Instance != null && MultiplayerManager.Instance.IsMultiplayerGame)
         MultiplayerManager.Instance.OnLocalPlayerDied(Score);
 
+    PlayerDataStore.Save(); // flush versioned JSON (also dual-writes PlayerPrefs inside)
     PlayerPrefs.Save(); // flush coins + best score deferred from every-pipe writes
     float sessionDuration = Time.realtimeSinceStartup - _sessionStartTime;
     AnalyticsEvents.LogGameOver(Score, SkinManager.GetCoins(), sessionDuration);
@@ -1077,7 +1146,7 @@ public void TriggerGameOver()
         // Update score display before showing
         if (gameOverScoreText != null)
         {
-            int best = PlayerPrefs.GetInt("BestScore", 0);
+            int best = PlayerDataStore.Data.bestScore;
             if (Score >= best && Score > 0)
             {
                 gameOverScoreText.text = "Score: " + Score + "\n<size=70%><color=#FFD740>✦ NEW BEST! ✦</color></size>";
@@ -1108,7 +1177,6 @@ public void TriggerGameOver()
         if (hasRevived)
         {
             // Player already revived this run — skip game over panel, go straight to leaderboard
-            Debug.Log($"[TriggerGameOver] hasRevived=true — routing to leaderboard (score={Score})");
             Time.timeScale = 1f;
             HideGameOverUI();
             if (gameOverPanel != null) gameOverPanel.SetActive(false);
@@ -1120,7 +1188,7 @@ public void TriggerGameOver()
         // Refresh "Best:" label inside card
         TextMeshProUGUI bestCardLbl = FindTMPInChildren(gameOverPanel.transform, "BestLabel");
         if (bestCardLbl != null)
-            bestCardLbl.text = "Best: " + PlayerPrefs.GetInt("BestScore", 0);
+            bestCardLbl.text = "Best: " + PlayerDataStore.Data.bestScore;
 
         gameOverPanel.SetActive(true);
         gameOverPanel.transform.SetAsLastSibling();
@@ -1203,22 +1271,21 @@ IEnumerator FadeInGameOverUI()
 public void StartGame()
 {
     if (player != null) player.SetActive(true);
+    PowerUpManager.ResetForNewGame();
     _currentSpeed    = 4.0f;
     _currentGravity  = 1.0f;
     lastGap          = 3.2f;
     hardPipeCounter  = 0;
     forceHighNext    = false;
-    _seedPowerUpUsed = false;
+    _seedPowerUpUsed  = false;
     _sessionStartTime = Time.realtimeSinceStartup;
-    AnalyticsEvents.LogSessionStart();
+    AnalyticsEvents.LogRunStart(SkinManager.SkinNames[SkinManager.GetSelectedSkin()]);
     FirebaseGameManager manager = FindObjectOfType<FirebaseGameManager>();
 
     if (manager != null)
-
     {
-
         manager.hasRevivedThisRun = false;
-
+        manager.StartNewSession(); // generate fresh session ID + start timer
     }
     wasRevived = false;
     CurrentState = GameState.WaitingForRevive; // freeze until first tap
@@ -1333,57 +1400,6 @@ void CreateUIText()
 // RestartGame – resets everything
 // =========================
 
-    // ===== Reset game flags =====
-//   public void RestartGame()
-// {
-//     HideGameOverUI();
-
-//     // 🔴 STOP OLD SPAWNING
-//     CancelInvoke(nameof(SpawnPipeRepeated));
-
-//     CurrentState = GameState.Menu;
-//     Time.timeScale = 0f;
-//     IsGameOver = false;
-//     Score = 0;
-
-//     // 🔴 RESET GAP MEMORY (CRITICAL)
-//     lastGap = 3.2f;
-//     lastGapCenter = 1.5f;
-
-//     GameObject restartButton = GameObject.Find("RestartButton");
-//     if (restartButton != null)
-//         Destroy(restartButton);
-
-//     if (gameOverImageObj != null)
-//         gameOverImageObj.SetActive(false);
-
-//     if (scoreText != null)
-//         scoreText.text = "Score: 0";
-
-//     if (playerScript != null)
-//         playerScript.ResetPlayer(new Vector3(-2f, 0f, 0f));
-
-//     // Restore sprite
-//     if (player != null)
-//     {
-//         var sr = player.GetComponent<SpriteRenderer>();
-//         if (sr != null && playerSprite != null)
-//         {
-//             sr.sprite = playerSprite;
-//             player.transform.localScale = originalPlayerScale;
-//         }
-//     }
-
-//     // 🔴 DESTROY ALL PIPES CLEANLY
-//     foreach (var pipe in Object.FindObjectsOfType<Moving>())
-//     {
-//         Destroy(pipe.gameObject);
-//     }
-
-//     // 🔴 SPAWN FIRST PIPE (VISIBLE IN MENU)
-//     nextPipeX = pipeSpawnX + 5f;
-//     SpawnPipe(5f);
-// }
     /// <summary>
     /// Add coins to player balance (from quests, achievements, battle pass rewards, etc)
     /// </summary>
@@ -1406,11 +1422,9 @@ public void RestartGame(bool directStart = true)
     if (questButtonGO != null) questButtonGO.SetActive(false);
 
 if (manager != null)
-
 {
-
     manager.hasRevivedThisRun = false;
-
+    manager.StartNewSession(); // fresh UUID each restart — prevents "Session already submitted"
 }
 if (reviveButton != null) reviveButton.SetActive(false);
 if (restartButton != null) restartButton.SetActive(false);
@@ -1432,11 +1446,12 @@ if (restartButton != null) restartButton.SetActive(false);
     _currentGravity = 1.0f;
     hardPipeCounter = 0;
     forceHighNext   = false;
-    _seedPowerUpUsed = false; // allow one seeded power-up in next session
+    _seedPowerUpUsed  = false; // allow one seeded power-up in next session
+    PowerUpManager.ResetForNewGame();
 
     // Track lifetime games played for new-player seeding logic
-    int played = PlayerPrefs.GetInt("TotalGamesPlayed", 0);
-    PlayerPrefs.SetInt("TotalGamesPlayed", played + 1);
+    PlayerDataStore.Data.totalGamesPlayed++;
+    PlayerPrefs.SetInt("TotalGamesPlayed", PlayerDataStore.Data.totalGamesPlayed); // backup
     PlayerPrefs.Save();
 
     // 🔥 IMPORTANT FIX
@@ -1547,8 +1562,7 @@ private IEnumerator AmbientBackgroundBubbles()
     };
     // Filter out any that failed to load
     var validSprites = System.Array.FindAll(bubSprites, s => s != null);
-    Debug.Log($"[BgBubbles] Loaded {validSprites.Length}/3 bubble sprites");
-    if (validSprites.Length == 0) { Debug.LogWarning("[BgBubbles] No bubble sprites loaded — check BgObjects/Bubble_1.png spriteMode in meta"); yield break; }
+    if (validSprites.Length == 0) { yield break; }
 
     while (true)
     {
@@ -1655,19 +1669,19 @@ public DifficultyTier GetTier()
 {
     // Staggered difficulty — only ONE axis changes meaningfully per tier boundary
     // so players feel a gradual ramp instead of a wall
-    if (Score < 5)   return new DifficultyTier { pipeSpd=5.5f,  gap=4.00f, gravScale=1.10f, spawnInterval=1.30f, reliefEvery=0  }; // INTRO     0-4
-    if (Score < 10)  return new DifficultyTier { pipeSpd=5.8f,  gap=3.85f, gravScale=1.12f, spawnInterval=1.25f, reliefEvery=0  }; // EASY      5-9
-    if (Score < 15)  return new DifficultyTier { pipeSpd=6.0f,  gap=3.75f, gravScale=1.15f, spawnInterval=1.22f, reliefEvery=0  }; // EASY+     10-14
-    if (Score < 20)  return new DifficultyTier { pipeSpd=6.2f,  gap=3.65f, gravScale=1.18f, spawnInterval=1.18f, reliefEvery=0  }; // MEDIUM    15-19
-    if (Score < 25)  return new DifficultyTier { pipeSpd=6.5f,  gap=3.55f, gravScale=1.20f, spawnInterval=1.15f, reliefEvery=12 }; // MEDIUM+   20-24
-    if (Score < 30)  return new DifficultyTier { pipeSpd=6.8f,  gap=3.45f, gravScale=1.23f, spawnInterval=1.12f, reliefEvery=10 }; // HARD      25-29
-    if (Score < 40)  return new DifficultyTier { pipeSpd=7.2f,  gap=3.30f, gravScale=1.28f, spawnInterval=1.08f, reliefEvery=8  }; // HARD+     30-39
-    if (Score < 50)  return new DifficultyTier { pipeSpd=7.6f,  gap=3.10f, gravScale=1.33f, spawnInterval=1.02f, reliefEvery=6  }; // EXPERT    40-49
-    if (Score < 60)  return new DifficultyTier { pipeSpd=8.0f,  gap=2.90f, gravScale=1.38f, spawnInterval=0.96f, reliefEvery=5  }; // EXPERT+   50-59
-    if (Score < 75)  return new DifficultyTier { pipeSpd=8.6f,  gap=2.70f, gravScale=1.43f, spawnInterval=0.90f, reliefEvery=4  }; // MASTER    60-74
-    if (Score < 100) return new DifficultyTier { pipeSpd=9.2f,  gap=2.50f, gravScale=1.48f, spawnInterval=0.82f, reliefEvery=3  }; // MASTER+   75-99
-    if (Score < 130) return new DifficultyTier { pipeSpd=10.0f, gap=2.35f, gravScale=1.53f, spawnInterval=0.74f, reliefEvery=2  }; // LEGEND    100-129
-                     return new DifficultyTier { pipeSpd=11.0f, gap=2.20f, gravScale=1.58f, spawnInterval=0.65f, reliefEvery=1  }; // GODLIKE   130+
+    if (Score < 5)   return new DifficultyTier { pipeSpd=5.5f,  gap=4.50f, gravScale=1.10f, spawnInterval=1.30f, reliefEvery=0  }; // INTRO     0-4
+    if (Score < 10)  return new DifficultyTier { pipeSpd=5.8f,  gap=4.30f, gravScale=1.12f, spawnInterval=1.25f, reliefEvery=0  }; // EASY      5-9
+    if (Score < 15)  return new DifficultyTier { pipeSpd=6.0f,  gap=4.15f, gravScale=1.15f, spawnInterval=1.22f, reliefEvery=0  }; // EASY+     10-14
+    if (Score < 20)  return new DifficultyTier { pipeSpd=6.2f,  gap=4.00f, gravScale=1.18f, spawnInterval=1.18f, reliefEvery=0  }; // MEDIUM    15-19
+    if (Score < 25)  return new DifficultyTier { pipeSpd=6.5f,  gap=3.85f, gravScale=1.20f, spawnInterval=1.15f, reliefEvery=12 }; // MEDIUM+   20-24
+    if (Score < 30)  return new DifficultyTier { pipeSpd=6.8f,  gap=3.70f, gravScale=1.23f, spawnInterval=1.12f, reliefEvery=10 }; // HARD      25-29
+    if (Score < 40)  return new DifficultyTier { pipeSpd=7.2f,  gap=3.55f, gravScale=1.28f, spawnInterval=1.08f, reliefEvery=8  }; // HARD+     30-39
+    if (Score < 50)  return new DifficultyTier { pipeSpd=7.6f,  gap=3.35f, gravScale=1.33f, spawnInterval=1.02f, reliefEvery=6  }; // EXPERT    40-49
+    if (Score < 60)  return new DifficultyTier { pipeSpd=8.0f,  gap=3.15f, gravScale=1.38f, spawnInterval=0.96f, reliefEvery=5  }; // EXPERT+   50-59
+    if (Score < 75)  return new DifficultyTier { pipeSpd=8.6f,  gap=2.95f, gravScale=1.43f, spawnInterval=0.90f, reliefEvery=4  }; // MASTER    60-74
+    if (Score < 100) return new DifficultyTier { pipeSpd=9.2f,  gap=2.75f, gravScale=1.48f, spawnInterval=0.82f, reliefEvery=3  }; // MASTER+   75-99
+    if (Score < 130) return new DifficultyTier { pipeSpd=10.0f, gap=2.60f, gravScale=1.53f, spawnInterval=0.74f, reliefEvery=2  }; // LEGEND    100-129
+                     return new DifficultyTier { pipeSpd=11.0f, gap=2.45f, gravScale=1.58f, spawnInterval=0.65f, reliefEvery=1  }; // GODLIKE   130+
 }
 
 // Smooth interpolation between current and target tier values
@@ -1708,13 +1722,165 @@ rect.pivot = new Vector2(0.5f, 1);
 rect.anchoredPosition = new Vector2(0, -40);
 rect.sizeDelta = new Vector2(400, 80);
 }
-// void TogglePause()
-//     {
-//         isPaused = !isPaused;
-//         Time.timeScale = isPaused ? 0 : 1;
-//         ////debug.Log(isPaused ? "Game Paused" : "Game Resumed");
-//     }
- // make sure this is at top
+void TogglePause()
+{
+    // Pause is only valid during an active solo run
+    if (CurrentState != GameState.Playing) return;
+    if (MultiplayerManager.Instance != null && MultiplayerManager.Instance.IsMultiplayerGame) return;
+
+    _isPaused = !_isPaused;
+    Time.timeScale = _isPaused ? 0f : 1f;
+
+    if (_isPaused) CameraShake.StopShake();
+    if (_pauseOverlay != null) _pauseOverlay.SetActive(_isPaused);
+
+    // Sync the sound icon inside the overlay whenever it opens
+    if (_isPaused) UpdatePauseOverlaySoundIcon();
+}
+
+void ShowPauseButton()
+{
+    if (_pauseButtonObj != null) _pauseButtonObj.SetActive(true);
+}
+
+void HidePauseButton()
+{
+    if (_pauseButtonObj != null) _pauseButtonObj.SetActive(false);
+    // Always clean up paused state when hiding — e.g. on game over
+    if (_isPaused)
+    {
+        _isPaused = false;
+        Time.timeScale = 1f;
+        if (_pauseOverlay != null) _pauseOverlay.SetActive(false);
+    }
+}
+
+void UpdatePauseOverlaySoundIcon()
+{
+    if (_pauseSoundBtnImage == null) return;
+    var fgm = FindObjectOfType<FirebaseGameManager>();
+    bool on = fgm == null || fgm.IsSoundOn;
+    Sprite sp = Resources.Load<Sprite>(on ? "SoundOn" : "SoundOff");
+    if (sp != null) _pauseSoundBtnImage.sprite = sp;
+}
+
+void CreatePauseButton()
+{
+    if (mainCanvas == null) return;
+
+    _pauseButtonObj = new GameObject("PauseButton");
+    _pauseButtonObj.transform.SetParent(mainCanvas.transform, false);
+    _pauseButtonObj.transform.SetAsLastSibling();
+
+    Image img = _pauseButtonObj.AddComponent<Image>();
+    Sprite pauseSprite = Resources.Load<Sprite>("PauseBtn");
+    if (pauseSprite != null)
+    {
+        img.sprite = pauseSprite;
+        img.preserveAspect = true;
+        img.color = Color.white;
+    }
+    else
+    {
+        // Fallback: rounded navy pill
+        Sprite rounded = FirebaseGameManager.GetRoundedSprite();
+        if (rounded != null) { img.sprite = rounded; img.type = Image.Type.Sliced; img.pixelsPerUnitMultiplier = 0.35f; }
+        img.color = new Color(0.04f, 0.18f, 0.32f, 0.88f);
+    }
+
+    // Size maintains 16:9 ratio of source image (1360x768), displayed at comfortable tap size
+    RectTransform rt = _pauseButtonObj.GetComponent<RectTransform>();
+    rt.anchorMin        = new Vector2(1f, 1f);
+    rt.anchorMax        = new Vector2(1f, 1f);
+    rt.pivot            = new Vector2(1f, 1f);
+    rt.sizeDelta        = new Vector2(140f, 80f);
+    rt.anchoredPosition = new Vector2(-12f, -100f);
+
+    Button btn = _pauseButtonObj.AddComponent<Button>();
+    btn.targetGraphic = img;
+    ColorBlock cb = btn.colors;
+    cb.normalColor      = Color.white;
+    cb.highlightedColor = new Color(1f, 1f, 1f, 0.8f);
+    cb.pressedColor     = new Color(0.7f, 0.7f, 0.7f, 1f);
+    btn.colors = cb;
+    btn.onClick.AddListener(TogglePause);
+
+    _pauseButtonObj.SetActive(false);
+}
+
+void CreatePauseOverlay()
+{
+    if (mainCanvas == null) return;
+
+    // Full-screen input blocker
+    _pauseOverlay = new GameObject("PauseOverlay");
+    _pauseOverlay.transform.SetParent(mainCanvas.transform, false);
+    _pauseOverlay.transform.SetAsLastSibling();
+
+    Image blocker = _pauseOverlay.AddComponent<Image>();
+    blocker.color = new Color(0f, 0f, 0f, 0.60f);
+    RectTransform brt = _pauseOverlay.GetComponent<RectTransform>();
+    brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
+    brt.offsetMin = Vector2.zero; brt.offsetMax = Vector2.zero;
+
+    // Load sprites (1360×768 source → displayed at 320×181)
+    Sprite resumeSprite = Resources.Load<Sprite>("ResumeBtn");
+    Sprite soundOnSprite  = Resources.Load<Sprite>("SoundOn");
+    Sprite soundOffSprite = Resources.Load<Sprite>("SoundOff");
+    Sprite quitSprite   = Resources.Load<Sprite>("QuitBtn");
+
+    const float BTN_W = 320f;
+    const float BTN_H = 181f; // 320 * (768/1360)
+    const float GAP   = 24f;
+    float totalH = BTN_H * 3 + GAP * 2;
+    float startY = totalH * 0.5f - BTN_H * 0.5f; // top button centre Y
+
+    // Helper — create one image button centred on overlay
+    System.Func<string, Sprite, float, Button> MakeImgBtn = (goName, sprite, centreY) =>
+    {
+        GameObject go = new GameObject(goName);
+        go.transform.SetParent(_pauseOverlay.transform, false);
+        Image img2 = go.AddComponent<Image>();
+        if (sprite != null) { img2.sprite = sprite; img2.preserveAspect = true; img2.color = Color.white; }
+        else { img2.color = new Color(0.08f, 0.22f, 0.40f, 1f); }
+        RectTransform rt2 = go.GetComponent<RectTransform>();
+        rt2.anchorMin = new Vector2(0.5f, 0.5f); rt2.anchorMax = new Vector2(0.5f, 0.5f);
+        rt2.pivot     = new Vector2(0.5f, 0.5f);
+        rt2.sizeDelta = new Vector2(BTN_W, BTN_H);
+        rt2.anchoredPosition = new Vector2(0f, centreY);
+        Button b = go.AddComponent<Button>();
+        b.targetGraphic = img2;
+        ColorBlock cb = b.colors;
+        cb.normalColor      = Color.white;
+        cb.highlightedColor = new Color(1f, 1f, 1f, 0.75f);
+        cb.pressedColor     = new Color(0.65f, 0.65f, 0.65f, 1f);
+        b.colors = cb;
+        return b;
+    };
+
+    // Resume
+    Button resumeBtn = MakeImgBtn("ResumeBtn", resumeSprite, startY);
+    resumeBtn.onClick.AddListener(() => TogglePause());
+
+    // Sound toggle
+    Button soundBtn = MakeImgBtn("SoundBtn", soundOnSprite, startY - BTN_H - GAP);
+    _pauseSoundBtnImage = soundBtn.GetComponent<Image>();
+    soundBtn.onClick.AddListener(() => {
+        var fgm = FindObjectOfType<FirebaseGameManager>();
+        if (fgm != null) { fgm.ToggleSound(); UpdatePauseOverlaySoundIcon(); }
+    });
+
+    // Quit
+    Button quitBtn = MakeImgBtn("QuitBtn", quitSprite, startY - (BTN_H + GAP) * 2f);
+    quitBtn.onClick.AddListener(() => {
+        _isPaused = false;
+        Time.timeScale = 1f;
+        _pauseOverlay.SetActive(false);
+        TriggerGameOver();
+    });
+
+    _pauseOverlay.SetActive(false);
+}
 
 // void CreatePauseText()
 // {
@@ -1867,6 +2033,9 @@ void CreateAllUI()
 //         txtRect.offsetMax = Vector2.zero;
 
 //         pauseBtn.onClick.AddListener(TogglePause);
+
+        CreatePauseButton();
+        CreatePauseOverlay();
     }
 
     // 10 units spacing below score
@@ -1909,6 +2078,7 @@ void CreateAllUI()
     public void StartPipeSpawning()
     {
         CurrentState = GameState.Playing;
+        ShowPauseButton();
 
         // Restore speed on all existing pipes
         foreach (var m in FindObjectsByType<Moving>(FindObjectsSortMode.None))
@@ -1986,6 +2156,7 @@ void CreateAllUI()
     // NOT called for multiplayer — the menu panel is never shown between MP rounds.
     public void ShowMenuUI()
     {
+        HidePauseButton();
         if (gameLogo != null)    gameLogo.gameObject.SetActive(true);
         if (bestScoreGlow  != null) bestScoreGlow.SetActive(true);
         if (bestScoreLabel != null) bestScoreLabel.SetActive(true);
@@ -2033,12 +2204,21 @@ public void SetGameOverImageSize(float width, float height)
 }
 string GetOrCreatePlayerID()
 {
+    // Prefer versioned store; fall back to PlayerPrefs for existing installs
+    if (!string.IsNullOrEmpty(PlayerDataStore.Data.playerId))
+        return PlayerDataStore.Data.playerId;
     if (PlayerPrefs.HasKey("PLAYER_ID"))
-        return PlayerPrefs.GetString("PLAYER_ID");
+    {
+        string existing = PlayerPrefs.GetString("PLAYER_ID");
+        PlayerDataStore.Data.playerId = existing;
+        PlayerDataStore.Save();
+        return existing;
+    }
 
     string id = System.Guid.NewGuid().ToString();
-
+    PlayerDataStore.Data.playerId = id;
     PlayerPrefs.SetString("PLAYER_ID", id);
+    PlayerDataStore.Save();
     PlayerPrefs.Save();
 
     ////debug.Log("New PlayerID created: " + id);
@@ -2074,7 +2254,9 @@ public void SaveUsername(string username)
 
     string finalUsername = country + "_" + username + "_" + shortID;
 
-    PlayerPrefs.SetString("USERNAME", finalUsername);
+    PlayerDataStore.Data.username = finalUsername;
+    PlayerPrefs.SetString("USERNAME", finalUsername); // backup
+    PlayerDataStore.Save();
     PlayerPrefs.Save();
 
     ////debug.Log("Username saved: " + finalUsername);
@@ -2144,15 +2326,20 @@ public void SaveUsername(string username)
 
     void  LoadUsername()
 {
-    if (PlayerPrefs.HasKey("USERNAME"))
+    string stored = PlayerDataStore.Data.username;
+    if (!string.IsNullOrEmpty(stored))
+    {
+        playerUsername = stored;
+    }
+    else if (PlayerPrefs.HasKey("USERNAME"))
     {
         playerUsername = PlayerPrefs.GetString("USERNAME");
-        ////debug.Log("Loaded username: " + playerUsername);
     }
 }
 public void RefreshUsernameText()
 {
-    playerUsername = PlayerPrefs.GetString("USERNAME", "Player");
+    string stored = PlayerDataStore.Data.username;
+    playerUsername = !string.IsNullOrEmpty(stored) ? stored : PlayerPrefs.GetString("USERNAME", "Player");
 
     if (usernameText != null)
         usernameText.text = playerUsername;
@@ -2178,7 +2365,9 @@ public IEnumerator GetCountryCode()
     {
         CountryData data = JsonUtility.FromJson<CountryData>(req.downloadHandler.text);
 
-        PlayerPrefs.SetString("COUNTRY", data.country_code);
+        PlayerDataStore.Data.country = data.country_code;
+        PlayerPrefs.SetString("COUNTRY", data.country_code); // backup
+        PlayerDataStore.Save();
         PlayerPrefs.Save();
 
         ////debug.Log("Country detected: " + data.country_code);
@@ -2186,6 +2375,7 @@ public IEnumerator GetCountryCode()
     else
     {
         ////debug.Log("Country detection failed");
+        PlayerDataStore.Data.country = "XX";
         PlayerPrefs.SetString("COUNTRY", "XX");
     }
 }
@@ -2312,8 +2502,8 @@ void CreateBestScoreText()
     RectTransform glowRT = glowGO.GetComponent<RectTransform>();
     glowRT.anchorMin = new Vector2(0.5f, 0.5f); glowRT.anchorMax = new Vector2(0.5f, 0.5f);
     glowRT.pivot     = new Vector2(0.5f, 0.5f);
-    glowRT.sizeDelta        = new Vector2(580, 170);
-    glowRT.anchoredPosition = new Vector2(0, 165);
+    glowRT.sizeDelta        = new Vector2(700, 210);
+    glowRT.anchoredPosition = new Vector2(0, 280);
 
     // ── Ribbon bar ────────────────────────────────────────────────────
     GameObject cardGO = new GameObject("BestScoreCard");
@@ -2326,23 +2516,24 @@ void CreateBestScoreText()
     RectTransform cardRT = cardGO.GetComponent<RectTransform>();
     cardRT.anchorMin = new Vector2(0.5f, 0.5f); cardRT.anchorMax = new Vector2(0.5f, 0.5f);
     cardRT.pivot     = new Vector2(0.5f, 0.5f);
-    cardRT.sizeDelta        = new Vector2(560, 120);
-    cardRT.anchoredPosition = new Vector2(0, 160);
+    cardRT.sizeDelta        = new Vector2(680, 155);
+    cardRT.anchoredPosition = new Vector2(0, 275);
 
     // ── "Best — X" on one line inside ribbon ─────────────────────────
     GameObject bestGO = new GameObject("BestScoreText");
     bestGO.transform.SetParent(cardGO.transform, false);
     bestScoreText = bestGO.AddComponent<TextMeshProUGUI>();
-    bestScoreText.font         = tmpFont;
-    bestScoreText.fontSize     = 62;
-    bestScoreText.fontStyle    = FontStyles.Bold;
+    var bangersFont = Resources.Load<TMP_FontAsset>("Fonts & Materials/Bangers SDF");
+    bestScoreText.font         = bangersFont != null ? bangersFont : tmpFont;
+    bestScoreText.fontSize     = 66;
+    bestScoreText.fontStyle    = FontStyles.Normal;
     bestScoreText.alignment    = TextAlignmentOptions.Center;
-    bestScoreText.color        = Color.white;
-    bestScoreText.outlineColor = new Color(0.4f, 0.22f, 0f, 1f);
-    bestScoreText.outlineWidth = 0.18f;
+    bestScoreText.color        = new Color(0.12f, 0.06f, 0f); // dark brown, matches ribbon
+    bestScoreText.outlineColor = new Color(1f, 1f, 1f, 0f);
+    bestScoreText.outlineWidth = 0f;
     RectTransform scoreRT = bestGO.GetComponent<RectTransform>();
     scoreRT.anchorMin = Vector2.zero; scoreRT.anchorMax = Vector2.one;
-    scoreRT.offsetMin = new Vector2(12, 4); scoreRT.offsetMax = new Vector2(-12, -4);
+    scoreRT.offsetMin = new Vector2(0, 12); scoreRT.offsetMax = new Vector2(0, 12);
 
     // bestScoreLabel kept as empty placeholder so ShowMenuUI/HideMenuUI still work
     bestScoreLabel = cardGO;
@@ -2353,13 +2544,14 @@ void CreateBestScoreText()
     GameObject tagGO = new GameObject("Tagline");
     tagGO.transform.SetParent(mainCanvas.transform, false);
     _taglineText = tagGO.AddComponent<TextMeshProUGUI>();
-    _taglineText.font      = tmpFont;
-    _taglineText.text      = "Flip. Dash. Survive.";
-    _taglineText.fontSize  = 44;
-    _taglineText.fontStyle = FontStyles.Bold | FontStyles.Italic;
-    _taglineText.color            = new Color(1f, 1f, 1f, 0.92f);
+    var bangersTag = Resources.Load<TMP_FontAsset>("Fonts & Materials/Bangers SDF");
+    _taglineText.font      = bangersTag != null ? bangersTag : tmpFont;
+    _taglineText.text      = "Dodge. Dash. Survive.";
+    _taglineText.fontSize  = 48;
+    _taglineText.fontStyle = FontStyles.Normal;
+    _taglineText.color            = new Color(1f, 0.92f, 0.30f, 1f);  // bright gold
     _taglineText.outlineColor     = new Color(0f, 0.04f, 0.10f, 1f);
-    _taglineText.outlineWidth     = 0.38f;
+    _taglineText.outlineWidth     = 0.40f;
     _taglineText.alignment        = TextAlignmentOptions.Center;
     _taglineText.textWrappingMode = TextWrappingModes.NoWrap;
     _taglineText.overflowMode     = TextOverflowModes.Overflow;
@@ -2372,9 +2564,9 @@ void CreateBestScoreText()
 
 void RefreshBestScore()
 {
-    int best = PlayerPrefs.GetInt("BestScore", 0);
+    int best = PlayerDataStore.Data.bestScore;
     if (bestScoreText != null)
-        bestScoreText.text = "Best — " + (best > 0 ? best.ToString() : "--");
+        bestScoreText.text = "BEST  " + (best > 0 ? best.ToString() : "--");
 }
 
 void CreateGameLogo()
@@ -2392,8 +2584,6 @@ void CreateGameLogo()
     }
     else
     {
-        // Log exact path so we can diagnose if the sprite still fails to load
-        Debug.LogError("[GameLogo] flippy_fish_logo_new not found in Resources. Make sure the PNG is inside Assets/Resources/ and Sprite Mode is Single.");
     }
     gameLogo.preserveAspect = true;
 
@@ -2405,41 +2595,6 @@ void CreateGameLogo()
     rt.anchoredPosition = new Vector2(0, -160);
 }
 
-// void CreateGround()
-// {
-//     Camera cam = Camera.main;
-
-//     float camHeight = cam.orthographicSize * 2f;
-//     float camWidth = camHeight * cam.aspect;
-
-//     ground = new GameObject("Ground");
-
-//     SpriteRenderer sr = ground.AddComponent<SpriteRenderer>();
-//     sr.sprite = Resources.Load<Sprite>("Ground");
-//     sr.drawMode = SpriteDrawMode.Tiled;
-//     sr.sortingOrder = 20;
-
-//     ground.transform.localScale = Vector3.one;
-
-//     // tiled width
-//     sr.size = new Vector2(camWidth * 3f, sr.sprite.bounds.size.y);
-
-//     float groundHeight = sr.size.y;
-
-//     float groundY = -cam.orthographicSize + groundHeight / 2f - 2f;
-//     ground.transform.position = new Vector3(0, groundY, 0);
-
-//     // collider
-//     BoxCollider2D col = ground.AddComponent<BoxCollider2D>();
-//     col.size = new Vector2(sr.size.x, groundHeight);
-
-//     // keep collider centered with ground
-//     col.offset = Vector2.zero;
-
-//     ground.tag = "Ground";
-
-//     groundTop = groundY + groundHeight / 2f;
-// }
 void CreateGround()
 {
     Camera cam = Camera.main;
@@ -2613,11 +2768,10 @@ public void ShowSadPlayer()
 }
 public void ContinueAfterAd()
 {
-
     IsGameOver = false;
     CurrentState = GameState.Playing;
-
     Time.timeScale = 1f;
+    ShowPauseButton();
 
     if (playerScript != null)
     {
@@ -2629,6 +2783,10 @@ public void RevivePlayer()
     Time.timeScale = 1f;
     IsGameOver = false;
     CurrentState = GameState.WaitingForRevive; // wait for first tap
+
+    // Sync power-up flags with live duration tracker (handles case where RevivePlayer
+    // is called directly rather than via ReviveAfterAd)
+    PowerUpManager.SyncStateForRevive();
 
     HideGameOverUI();
 
@@ -2677,6 +2835,7 @@ public void ReviveAfterAd()
     IsGameOver = false;
     CurrentState = GameState.WaitingForRevive;
     if (_scoreBoxRoot != null) _scoreBoxRoot.SetActive(true);
+    UpdateScoreText(); // refresh score display after revive
 
     // Freeze player until tap
     if (player != null)
@@ -2698,6 +2857,9 @@ public void ReviveAfterAd()
     }
 
     HapticManager.Revive(); // double pulse on revive
+
+    // Sync power-up state: clear any flags whose duration expired during the death screen
+    PowerUpManager.SyncStateForRevive();
 
     FirebaseGameManager manager = FindObjectOfType<FirebaseGameManager>();
     if (manager != null)
@@ -3030,7 +3192,7 @@ void CreateGameOverButtons()
     bestLbl.color        = Color.white;
     bestLbl.outlineColor = new Color(0f, 0.20f, 0.40f, 1f);
     bestLbl.outlineWidth = 0.18f;
-    bestLbl.text         = "Best: " + PlayerPrefs.GetInt("BestScore", 0);
+    bestLbl.text         = "Best: " + PlayerDataStore.Data.bestScore;
     RectTransform bestRT = bestGO.GetComponent<RectTransform>();
     bestRT.anchorMin = new Vector2(0f,0.5f); bestRT.anchorMax = new Vector2(1f,0.5f);
     bestRT.pivot     = new Vector2(0.5f,0.5f);
@@ -3222,7 +3384,6 @@ void OnReviveClicked()
     if (AdManager.Instance == null)
     {
         // AdManager not ready — restore game over UI so player isn't stuck
-        Debug.LogWarning("[Revive] AdManager.Instance is null — restoring game over panel");
         if (gameOverPanel != null)   gameOverPanel.SetActive(true);
         if (restartButton != null)   restartButton.SetActive(true);
         if (gameOverImageObj != null) gameOverImageObj.SetActive(true);
@@ -3240,13 +3401,15 @@ void OnReviveClicked()
         },
         onSkipped: () =>
         {
-            // Ad skipped — update timer so next interstitial respects cooldown
+            // Ad skipped/unavailable — restore full game over UI including revive button
             FirebaseGameManager fbmSkip = FindObjectOfType<FirebaseGameManager>();
             if (fbmSkip != null) fbmSkip.UpdateLastAdTime();
-            // Show game over panel again so player can restart
-            if (gameOverPanel != null)   gameOverPanel.SetActive(true);
-            if (restartButton != null)   restartButton.SetActive(true);
+            if (gameOverPanel != null)    gameOverPanel.SetActive(true);
+            if (restartButton != null)    restartButton.SetActive(true);
             if (gameOverImageObj != null) gameOverImageObj.SetActive(true);
+            // Restore revive button so player can try again
+            bool canStillRevive = fbmSkip == null || !fbmSkip.hasRevivedThisRun;
+            if (reviveButton != null)     reviveButton.SetActive(canStillRevive);
         }
     );
 }
@@ -3346,7 +3509,6 @@ IEnumerator ReviveTimeoutFallback()
     // If IsGameOver is false, revive already succeeded — do nothing
     if (IsGameOver)
     {
-        Debug.LogWarning("Revive timeout — forcing restart");
         FirebaseGameManager firebase = FindObjectOfType<FirebaseGameManager>();
         if (firebase != null) firebase.TriggerRestartWithAd();
         else RestartGame();
@@ -3441,8 +3603,6 @@ IEnumerator ReliefPipePulse(Transform pipe)
 
 void CreateDailyQuestsPanelUI()
 {
-    Debug.Log("[DailyQuests] CreateDailyQuestsPanelUI v5");
-
     // ── Dedicated top-level overlay canvas (sort 9999 — above everything) ──
     var overlayCanvasGO = new GameObject("QuestOverlayCanvas");
     var overlayCanvas = overlayCanvasGO.AddComponent<Canvas>();
@@ -3554,10 +3714,10 @@ void CreateDailyQuestsPanelUI()
     ovLblRT.offsetMin = ovLblRT.offsetMax = Vector2.zero;
     _questOverallLabel = ovLbl;
 
-    // Track (light, visible on dark bg)
+    // Track (dark, barely visible — fill color provides all the contrast)
     var ovTrackGO = new GameObject("OvTrack"); ovTrackGO.transform.SetParent(ovRowGO.transform, false);
     var ovTrackImg = ovTrackGO.AddComponent<Image>();
-    ovTrackImg.color = new Color(1f,1f,1f,0.30f);
+    ovTrackImg.color = new Color(1f,1f,1f,0.08f);
     var ovTrackRT = ovTrackGO.GetComponent<RectTransform>();
     ovTrackRT.anchorMin = new Vector2(0f, 0f); ovTrackRT.anchorMax = new Vector2(1f, 0.42f);
     ovTrackRT.offsetMin = ovTrackRT.offsetMax = Vector2.zero;
@@ -3635,7 +3795,6 @@ void CreateDailyQuestsButton()
 {
     if (mainCanvas == null)
     {
-        Debug.LogError("[DailyQuests] mainCanvas is null - cannot create button");
         return;
     }
 
@@ -3681,7 +3840,7 @@ void CreateDailyQuestsButton()
 void ShowDailyQuests()
 {
     if (isQuestPanelOpen) return;
-    if (dailyQuestPanel == null || darkOverlay == null) { Debug.LogError("[DailyQuests] Panel not built"); return; }
+    if (dailyQuestPanel == null || darkOverlay == null) { return; }
 
     // Hide entire Firebase canvas so nothing bleeds through
     _hiddenFirebaseCanvas = GameObject.Find("Canvas");
@@ -3775,15 +3934,52 @@ void ShowDailyQuests()
         circRT.anchorMin = circRT.anchorMax = circRT.pivot = new Vector2(0.5f, 0.5f);
         circRT.sizeDelta = new Vector2(138f, 138f); circRT.anchoredPosition = Vector2.zero;
 
-        // Icon sprite inside circle
-        if (iconSpr != null)
+        // Icon sprite inside circle — hidden on completed quests to avoid TMP checkmark atlas artifact
+        if (iconSpr != null && !done)
         {
             var icoGO = new GameObject("Icon"); icoGO.transform.SetParent(circGO.transform, false);
             var icoImg = icoGO.AddComponent<Image>();
-            icoImg.sprite = iconSpr; icoImg.preserveAspect = true; icoImg.color = Color.white;
+            icoImg.sprite = iconSpr; icoImg.preserveAspect = true;
+            icoImg.color = Color.white;
             var icoRT = icoGO.GetComponent<RectTransform>();
             icoRT.anchorMin = icoRT.anchorMax = icoRT.pivot = new Vector2(0.5f, 0.5f);
             icoRT.sizeDelta = new Vector2(97f, 97f); icoRT.anchoredPosition = Vector2.zero;
+        }
+
+        // Show fish icon dimmed on completed quests, with a green tick drawn as a filled Image on top
+        if (iconSpr != null && done)
+        {
+            var icoGO = new GameObject("Icon"); icoGO.transform.SetParent(circGO.transform, false);
+            var icoImg = icoGO.AddComponent<Image>();
+            icoImg.sprite = iconSpr; icoImg.preserveAspect = true;
+            icoImg.color = new Color(1f, 1f, 1f, 0.25f);
+            var icoRT = icoGO.GetComponent<RectTransform>();
+            icoRT.anchorMin = icoRT.anchorMax = icoRT.pivot = new Vector2(0.5f, 0.5f);
+            icoRT.sizeDelta = new Vector2(97f, 97f); icoRT.anchoredPosition = Vector2.zero;
+        }
+
+        // Checkmark badge (small pill in corner of circle)
+        if (done)
+        {
+            var ckGO = new GameObject("DoneBadge"); ckGO.transform.SetParent(circGO.transform, false);
+            var ckImg = ckGO.AddComponent<Image>();
+            ckImg.sprite = MakeRoundedRectSprite(56, 28, 14);
+            ckImg.color = new Color(0.10f, 0.82f, 0.35f);
+            var ckRT = ckGO.GetComponent<RectTransform>();
+            ckRT.anchorMin = ckRT.anchorMax = new Vector2(0.5f, 0f);
+            ckRT.pivot = new Vector2(0.5f, 0f);
+            ckRT.sizeDelta = new Vector2(56f, 28f);
+            ckRT.anchoredPosition = new Vector2(0f, 6f);
+
+            var ckLblGO = new GameObject("DoneLabel"); ckLblGO.transform.SetParent(ckGO.transform, false);
+            var ckLbl = ckLblGO.AddComponent<TextMeshProUGUI>();
+            ckLbl.text = "DONE"; ckLbl.fontSize = 14f; ckLbl.fontStyle = FontStyles.Bold;
+            ckLbl.color = Color.white;
+            ckLbl.alignment = TextAlignmentOptions.Center;
+            ckLbl.enableWordWrapping = false;
+            var ckLblRT = ckLbl.rectTransform;
+            ckLblRT.anchorMin = Vector2.zero; ckLblRT.anchorMax = Vector2.one;
+            ckLblRT.offsetMin = ckLblRT.offsetMax = Vector2.zero;
         }
 
         // ── RIGHT REWARD COLUMN ───────────────────────────────────────────
@@ -3849,32 +4045,36 @@ void ShowDailyQuests()
         int cur = done ? quest.targetValue : quest.currentProgress;
         var progTxtGO = new GameObject("ProgTxt"); progTxtGO.transform.SetParent(midGO.transform, false);
         var progTxt = progTxtGO.AddComponent<TextMeshProUGUI>();
-        progTxt.text = $"{cur} / {quest.targetValue}";
-        progTxt.fontSize = 38f;
-        progTxt.color = done ? new Color(0.55f, 1f, 0.60f, 0.80f) : new Color(1f,1f,1f,0.50f);
+        progTxt.text = done ? "DONE!" : $"{cur} / {quest.targetValue}";
+        progTxt.fontSize = 28f;
+        progTxt.color = done ? new Color(0.45f, 1f, 0.55f, 0.90f) : new Color(1f,1f,1f,0.38f);
         progTxt.alignment = TextAlignmentOptions.TopLeft;
         var progTxtRT = progTxtGO.GetComponent<RectTransform>();
         progTxtRT.anchorMin = new Vector2(0f, 1f); progTxtRT.anchorMax = new Vector2(1f, 1f);
         progTxtRT.pivot = new Vector2(0f, 1f);
         progTxtRT.sizeDelta = new Vector2(0f, 32f); progTxtRT.anchoredPosition = new Vector2(0f, -115f);
 
-        // Progress bar — LIGHT track so it's visible on dark card
+        // Progress bar — dark track, bright fill using fillAmount for accurate 0% rendering
         var trackGO = new GameObject("Track"); trackGO.transform.SetParent(midGO.transform, false);
         var trackImg = trackGO.AddComponent<Image>();
-        trackImg.sprite = MakeRoundedRectSprite(690, 18, 9);
-        trackImg.color  = new Color(1f, 1f, 1f, 0.15f); // light track, visible on dark bg
+        trackImg.sprite = MakeRoundedRectSprite(690, 22, 11);
+        trackImg.color  = new Color(0f, 0f, 0f, 0.35f); // dark track — fill provides all visual
         var trackRT = trackGO.GetComponent<RectTransform>();
         trackRT.anchorMin = new Vector2(0f, 0f); trackRT.anchorMax = new Vector2(1f, 0f);
         trackRT.pivot = new Vector2(0.5f, 0f);
-        trackRT.sizeDelta = new Vector2(-5f, 18f); trackRT.anchoredPosition = new Vector2(0f, 46f);
+        trackRT.sizeDelta = new Vector2(-5f, 22f); trackRT.anchoredPosition = new Vector2(0f, 46f);
 
         float pct = done ? 1f : (quest.targetValue > 0 ? Mathf.Clamp01((float)quest.currentProgress / quest.targetValue) : 0f);
         var fillGO = new GameObject("Fill"); fillGO.transform.SetParent(trackGO.transform, false);
         var fillImg = fillGO.AddComponent<Image>();
-        fillImg.sprite = MakeRoundedRectSprite(690, 18, 9);
-        fillImg.color  = done ? new Color(0.18f, 0.90f, 0.38f) : new Color(0.25f, 0.62f, 1.00f);
+        fillImg.sprite = MakeRoundedRectSprite(690, 22, 11);
+        fillImg.type        = Image.Type.Filled;
+        fillImg.fillMethod  = Image.FillMethod.Horizontal;
+        fillImg.fillOrigin  = (int)Image.OriginHorizontal.Left;
+        fillImg.fillAmount  = pct;
+        fillImg.color       = done ? new Color(0.18f, 0.90f, 0.38f) : new Color(0.20f, 0.75f, 1.00f);
         var fillRT = fillGO.GetComponent<RectTransform>();
-        fillRT.anchorMin = new Vector2(0f, 0f); fillRT.anchorMax = new Vector2(pct, 1f);
+        fillRT.anchorMin = Vector2.zero; fillRT.anchorMax = Vector2.one;
         fillRT.offsetMin = fillRT.offsetMax = Vector2.zero;
 
         // ── COMPLETED BANNER ──────────────────────────────────────────────
@@ -3944,40 +4144,40 @@ void CloseDailyQuests()
 
     // Restore Firebase canvas
     if (_hiddenFirebaseCanvas != null) { _hiddenFirebaseCanvas.SetActive(true); _hiddenFirebaseCanvas = null; }
+
+    // Refresh the quest badge on the nav bar
+    FindObjectOfType<FirebaseGameManager>()?.RefreshQuestBadge();
 }
 
 // ── POWER-UP SPAWN ───────────────────────────────────────────────────────
 // Called once per pipe. Handles both normal 5% chance and new-player seeding.
 private bool _seedPowerUpUsed = false; // one seeded power-up per session
 
-void TrySpawnPowerUpNearPipe(float pipeX, float gapCenter)
+void TrySpawnPowerUpNearPipe(float pipeX, float gapCenter, float gapSize)
 {
-    int gamesPlayed = PlayerPrefs.GetInt("TotalGamesPlayed", 0);
+    int gamesPlayed = PlayerDataStore.Data.totalGamesPlayed;
     bool isNewPlayer = gamesPlayed < 3;
 
     bool shouldSpawn = false;
 
-    // Seeding: guarantee one power-up between pipes 6-9 for new players
+    // Seeding: guarantee one power-up between pipes 6-9 for new players so they discover the system.
     if (isNewPlayer && !_seedPowerUpUsed && Score >= 6 && Score <= 9)
     {
-        shouldSpawn = true;
         _seedPowerUpUsed = true;
+        PowerUpManager.PowerUp.PowerUpType type = PowerUpManager.TrySpawnPowerUp();
+        Vector3 spawnPos = new Vector3(pipeX - 1f, gapCenter, 0f);
+        PowerUpSpawner.SpawnPowerUp(spawnPos, type);
+        return;
     }
-    else
-    {
-        // Normal 5% random spawn — only after score 3 so player has seen gameplay first
-        shouldSpawn = Score >= 3 && UnityEngine.Random.value < 0.05f;
-    }
+
+    // 10% random chance per pipe after score 5.
+    shouldSpawn = Score >= 5 && UnityEngine.Random.value < 0.10f;
 
     if (!shouldSpawn) return;
 
-    // Weighted random power-up type
-    PowerUpManager.PowerUp.PowerUpType type = PowerUpManager.TrySpawnPowerUp();
-    // Offset spawn X so power-up appears just after the pipe, not on top of it
-    float spawnOffsetX = pipeX + 1.5f;
-    // Spawn slightly above gap centre so it's visible and reachable
-    Vector3 spawnPos = new Vector3(spawnOffsetX, gapCenter + 0.4f, 0f);
-    PowerUpSpawner.SpawnPowerUp(spawnPos, type);
+    PowerUpManager.PowerUp.PowerUpType powerUpType = PowerUpManager.TrySpawnPowerUp();
+    Vector3 pos = new Vector3(pipeX - 1f, gapCenter, 0f);
+    PowerUpSpawner.SpawnPowerUp(pos, powerUpType);
 }
 
 // ── STREAK TOAST (delayed so canvas is guaranteed ready) ─────────────────

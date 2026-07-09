@@ -6,7 +6,9 @@ using Firebase.Database;
 using Firebase.Extensions;
 using TMPro;
 using UnityEngine.UI;
+using UnityEngine.Networking;
 using System.Collections;
+using System.Text;
 
 public class FirebaseGameManager : MonoBehaviour
 {
@@ -23,11 +25,13 @@ public class FirebaseGameManager : MonoBehaviour
     int bestScore;
     // ── Start-screen layout roots ─────────────────────────────────────────
     private TextMeshProUGUI _topBarUsernameLabel;
+    private GameObject _offlineDot; // small red dot shown when Firebase is unreachable
     private GameObject _topBarRoot;
     private GameObject _coinPillGO; // kept separate so it survives HideStartMenuElements
     private int _runStartCoins = 0; // wallet snapshot at run start — display baseline
     private GameObject _mainButtonsRoot;
     private GameObject _bottomNavBar;
+    private TextMeshProUGUI _questBadgeText;
     int lastScore;
     TextMeshProUGUI usernameText;
     private string playerUsername = "";
@@ -48,13 +52,22 @@ public class FirebaseGameManager : MonoBehaviour
     private readonly List<GameObject> _playerRows = new List<GameObject>();
     private Sprite _circleSprite;
     bool isSoundOn = true;
+    public bool IsSoundOn => isSoundOn;
     Image soundIconImage;
+    public Image SoundIconImage => soundIconImage;
     GameObject soundButtonObj;
 TextMeshProUGUI soundIconText;
 Canvas mainCanvas;
     [Header("Firebase Settings")]
     [Tooltip("Enter your Firebase Realtime Database URL here")]
     public string databaseURL = "https://flappymobilegame-default-rtdb.firebaseio.com/";
+
+    // Cloud Function endpoint for validated score submission
+    const string SUBMIT_SCORE_URL = "https://us-central1-flappymobilegame.cloudfunctions.net/submitScore";
+
+    // Session tracking for server-side plausibility check
+    string _currentSessionId;
+    float _sessionStartTime;
 
     void Start()
     {
@@ -63,8 +76,7 @@ Canvas mainCanvas;
         CreateRestartButton();
         InitializeFirebase();
 
-        int soundPref = PlayerPrefs.GetInt("SOUND", 1);
-        isSoundOn = soundPref == 1;
+        isSoundOn = PlayerDataStore.Data.soundOn;
         AudioListener.volume = isSoundOn ? 1f : 0f;
 
         if (PlayerPrefs.HasKey("USERNAME"))
@@ -77,6 +89,16 @@ Canvas mainCanvas;
         {
             ShowUsernamePanel(); // new player: show input + Play button
         }
+
+        // Refresh quest badge after DailyQuestManager has initialized (1 frame delay)
+        StartCoroutine(RefreshQuestBadgeNextFrame());
+    }
+
+    private System.Collections.IEnumerator RefreshQuestBadgeNextFrame()
+    {
+        yield return null;
+        yield return null; // two frames — ensures DailyQuestManager is fully initialized
+        RefreshQuestBadge();
     }
     void InitializeFirebase()
     {
@@ -87,6 +109,11 @@ Canvas mainCanvas;
                 FirebaseApp app = FirebaseApp.DefaultInstance;
                 dbReference = FirebaseDatabase.GetInstance(app, databaseURL).RootReference;
                 isFirebaseReady = true;
+                if (_offlineDot != null) _offlineDot.SetActive(false);
+
+                // Initialize crash reporting. Username is set later once the player
+                // has entered their display name (call CrashlyticsManager.SetUsername).
+                CrashlyticsManager.Initialize();
 
                 // Multiplayer — initialize with same DB reference
                 EnsureMultiplayerManager();
@@ -95,7 +122,7 @@ Canvas mainCanvas;
             else
             {
                 isFirebaseReady = false;
-                Debug.LogError("Firebase not ready: " + task.Result);
+                if (_offlineDot != null) _offlineDot.SetActive(true);
             }
         });
     }
@@ -135,10 +162,13 @@ Canvas mainCanvas;
 }
     System.Collections.IEnumerator WaitAndShowLeaderboard(int score)
     {
-        while (!isFirebaseReady)
+        float elapsed = 0f;
+        while (!isFirebaseReady && elapsed < 15f)
+        {
+            elapsed += Time.unscaledDeltaTime;
             yield return null;
-
-       //
+        }
+        // Proceed whether Firebase is ready or not — GameOver handles offline gracefully
         GameOver(score);
     }
 
@@ -150,61 +180,91 @@ Canvas mainCanvas;
             elapsed += 0.5f;
             yield return new WaitForSecondsRealtime(0.5f);
         }
+        // Game may have restarted while we were waiting — don't bleed leaderboard UI into the new run.
+        if (isRestarting) yield break;
         if (isFirebaseReady)
             ShowLeaderboardUI(score, topCount);
         else
         {
-            Debug.LogWarning("Firebase timeout — restarting without leaderboard");
             GameBootstrap bootstrap = FindObjectOfType<GameBootstrap>();
             if (bootstrap != null) bootstrap.RestartGame();
         }
     }
 
-    public void SaveScore(string username, int score)
+    /// <summary>Call at the start of each run to get a fresh session ID and start the clock.</summary>
+    public void StartNewSession()
     {
-        if (!isFirebaseReady)
-        {
-            // Firebase not ready yet — retry once it's ready
-            StartCoroutine(SaveScoreWhenReady(username, score));
-            return;
-        }
-
-        string key = dbReference.Child("leaderboard").Push().Key;
-        var data = new Dictionary<string, object>()
-        {
-            { "username", username },
-            { "score", score },
-            { "timestamp", System.DateTime.UtcNow.ToString() }
-        };
-
-        dbReference.Child("leaderboard").Child(key).SetValueAsync(data).ContinueWithOnMainThread(task =>
-        {
-            if (!task.IsCompleted)
-                Debug.LogError("❌ Failed to save score: " + task.Exception);
-        });
+        isRestarting = true;
+        _currentSessionId = System.Guid.NewGuid().ToString();
+        _sessionStartTime = Time.realtimeSinceStartup;
+        if (scoreTextUI != null) scoreTextUI.gameObject.SetActive(false);
     }
 
-    IEnumerator SaveScoreWhenReady(string username, int score)
+    public void SaveScore(string username, int score)
     {
+        float sessionSeconds = _sessionStartTime > 0f
+            ? Time.realtimeSinceStartup - _sessionStartTime
+            : 0f;
+
+        StartCoroutine(SubmitScoreToFunction(username, score, _currentSessionId, sessionSeconds));
+    }
+
+    IEnumerator SubmitScoreToFunction(string username, int score, string sessionId, float sessionSeconds)
+    {
+        // Wait for Firebase to be ready (reuses existing gate)
         float elapsed = 0f;
         while (!isFirebaseReady && elapsed < 15f)
         {
             elapsed += 0.5f;
             yield return new WaitForSecondsRealtime(0.5f);
         }
-        if (isFirebaseReady)
-            SaveScore(username, score);
+
+        var payload = new ScoreSubmitPayload
+        {
+            username = username,
+            score = score,
+            sessionId = sessionId,
+            sessionSeconds = sessionSeconds
+        };
+        string json = JsonUtility.ToJson(payload);
+
+        using var req = new UnityWebRequest(SUBMIT_SCORE_URL, "POST");
+        req.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+        req.downloadHandler = new DownloadHandlerBuffer();
+        req.SetRequestHeader("Content-Type", "application/json");
+        req.timeout = 20;
+
+        yield return req.SendWebRequest();
+
+        if (req.result == UnityWebRequest.Result.Success)
+        {
+            Debug.Log($"[ScoreValidation] Score {score} accepted by server.");
+        }
         else
-            Debug.LogWarning("Firebase never ready — score not saved");
+        {
+            string body = req.downloadHandler?.text ?? "";
+            Debug.LogWarning($"[ScoreValidation] Score {score} rejected: {req.responseCode} — {body}");
+        }
+    }
+
+    [System.Serializable]
+    class ScoreSubmitPayload
+    {
+        public string username;
+        public int    score;
+        public string sessionId;
+        public float  sessionSeconds;
     }
 
 //    
 public void ShowLeaderboardUI(int score, int topCount = 10)
 {
+    // Don't bleed leaderboard UI into a game that has already restarted.
+    if (isRestarting) return;
+
    GameObject canvas = mainCanvas.gameObject;
     if (!isFirebaseReady)
     {
-        Debug.LogWarning("Firebase not ready — waiting then showing leaderboard");
         StartCoroutine(WaitThenShowLeaderboard(score, topCount));
         return;
     }
@@ -230,8 +290,6 @@ if(scoreTextUI == null)
     rt.anchoredPosition = new Vector2(0f, -Screen.height * 0.28f);
 }
 
-scoreTextUI.text = "Score: " + score + "    Best: " + bestScore;
-scoreTextUI.gameObject.SetActive(true);
    //
 
     dbReference.Child("leaderboard")
@@ -242,7 +300,6 @@ scoreTextUI.gameObject.SetActive(true);
     {
         if (task.IsFaulted)
         {
-            Debug.LogError("Failed to fetch leaderboard");
             return;
         }
 
@@ -523,6 +580,18 @@ IEnumerator RestorePlayerTab()
         uTxtRT.anchorMin = Vector2.zero; uTxtRT.anchorMax = Vector2.one;
         uTxtRT.offsetMin = new Vector2(12, 4); uTxtRT.offsetMax = new Vector2(-12, -4);
 
+        // Offline dot — tiny red circle top-right of username pill, hidden until Firebase fails
+        var dotGO = new GameObject("OfflineDot");
+        dotGO.transform.SetParent(userPillGO.transform, false);
+        var dotImg = dotGO.AddComponent<Image>();
+        dotImg.color = new Color(0.9f, 0.25f, 0.25f, 1f);
+        var dotRT = dotGO.GetComponent<RectTransform>();
+        dotRT.anchorMin = dotRT.anchorMax = dotRT.pivot = new Vector2(1f, 1f);
+        dotRT.sizeDelta = new Vector2(18f, 18f);
+        dotRT.anchoredPosition = new Vector2(-6f, -6f);
+        _offlineDot = dotGO;
+        _offlineDot.SetActive(false); // hidden by default — only shown on Firebase failure
+
         // Coin pill — lives on the canvas directly so it stays visible during gameplay
         var coinPillGO  = new GameObject("CoinPill");
         coinPillGO.transform.SetParent(canvasGO.transform, false);
@@ -649,9 +718,9 @@ IEnumerator RestorePlayerTab()
 
         MakeSpriteButton(_mainButtonsRoot.transform, "StartButton", "start_button", -300f, 176f, OnSubmitUsername);
 
-        // Keep sound button but hide it from start menu; it shows during gameplay
+        // Sound button lives in menu (top-right). Hidden during gameplay; pause overlay provides in-run toggle.
         CreateSoundButton(usernamePanel);
-        if (soundButtonObj != null) soundButtonObj.SetActive(false);
+        if (soundButtonObj != null) soundButtonObj.SetActive(true);
 
         Create2PlayerButton(_mainButtonsRoot);
 
@@ -753,6 +822,68 @@ IEnumerator RestorePlayerTab()
         // Quest — far right
         MakeNavItem("QuestButton", "icon_quest", "", 0.65f, 1f,
                     () => GameBootstrap.Instance?.OpenDailyQuests(), showDot: false, iconOverrideText: "", iconSize: 260);
+
+        // Dynamic quest badge — shows "1/3", "2/3", or "✓" when all done
+        var questBtnGO = _bottomNavBar.transform.Find("QuestButton")?.gameObject;
+        if (questBtnGO != null)
+        {
+            var questIconGO = questBtnGO.transform.Find("Icon")?.gameObject;
+            if (questIconGO != null)
+            {
+                var badgeAnchorGO = new GameObject("QuestBadge");
+                badgeAnchorGO.transform.SetParent(questIconGO.transform, false);
+                // pill background
+                var pillImg = badgeAnchorGO.AddComponent<Image>();
+                pillImg.color = new Color(1f, 0.82f, 0.10f); // gold
+                var pillRT = badgeAnchorGO.GetComponent<RectTransform>();
+                pillRT.anchorMin = new Vector2(1f, 1f); pillRT.anchorMax = new Vector2(1f, 1f);
+                pillRT.pivot     = new Vector2(0.5f, 0.5f);
+                pillRT.sizeDelta        = new Vector2(68, 36);
+                pillRT.anchoredPosition = new Vector2(-18, -18);
+
+                var badgeTxtGO = new GameObject("BadgeText");
+                badgeTxtGO.transform.SetParent(badgeAnchorGO.transform, false);
+                _questBadgeText = badgeTxtGO.AddComponent<TextMeshProUGUI>();
+                _questBadgeText.text      = "";
+                _questBadgeText.fontSize  = 24;
+                _questBadgeText.fontStyle = FontStyles.Bold;
+                _questBadgeText.color     = new Color(0.05f, 0.05f, 0.05f);
+                _questBadgeText.alignment = TextAlignmentOptions.Center;
+                var badgeTxtRT = _questBadgeText.rectTransform;
+                badgeTxtRT.anchorMin = Vector2.zero; badgeTxtRT.anchorMax = Vector2.one;
+                badgeTxtRT.offsetMin = Vector2.zero; badgeTxtRT.offsetMax = Vector2.zero;
+
+                // badge text starts empty; RefreshQuestBadge() called from Start coroutine
+                badgeAnchorGO.SetActive(false);
+            }
+        }
+    }
+
+    public void RefreshQuestBadge()
+    {
+        if (_questBadgeText == null) return;
+        var mgr = DailyQuestManager.Instance;
+        if (mgr == null) { _questBadgeText.transform.parent.gameObject.SetActive(false); return; }
+
+        var quests = DailyQuestManager.GetDailyQuests();
+        if (quests == null || quests.Count == 0) { _questBadgeText.transform.parent.gameObject.SetActive(false); return; }
+
+        int total     = quests.Count;
+        int completed = quests.FindAll(q => q.completed).Count;
+
+        var pill = _questBadgeText.transform.parent.GetComponent<Image>();
+        if (completed >= total)
+        {
+            // Hide badge entirely when all quests complete — no box at all
+            _questBadgeText.transform.parent.gameObject.SetActive(false);
+            return;
+        }
+        else
+        {
+            _questBadgeText.text = $"{completed}/{total}";
+            if (pill != null) pill.color = new Color(1f, 0.82f, 0.10f); // gold
+        }
+        _questBadgeText.transform.parent.gameObject.SetActive(true);
     }
 
 void Create2PlayerButton(GameObject parent)
@@ -1003,8 +1134,7 @@ GameObject BuildScreenMain()
                             : err == "Matchmaking error"
                             ? "Server error — check Firebase matchmaking rules, then retry"
                             : err;
-                    Debug.LogWarning("[MP] QuickPlay error: " + err);
-                });
+                        });
         });
 
     MPDivider(screen, 0.40f, "─────  OR PLAY WITH A FRIEND  ─────");
@@ -1512,6 +1642,7 @@ public void HideStartMenuElements()
     if (_mainButtonsRoot != null) _mainButtonsRoot.SetActive(false);
     if (_bottomNavBar    != null) _bottomNavBar.SetActive(false);
     if (usernamePanel    != null) usernamePanel.SetActive(false);
+    if (soundButtonObj   != null) soundButtonObj.SetActive(false);
 
     // Snapshot the wallet RIGHT NOW — this is the baseline for the run display
     _runStartCoins = SkinManager.GetCoins();
@@ -1535,6 +1666,7 @@ public void ShowStartMenuElements()
     if (_topBarRoot      != null) _topBarRoot.SetActive(true);
     if (_mainButtonsRoot != null) _mainButtonsRoot.SetActive(true);
     if (_bottomNavBar    != null) _bottomNavBar.SetActive(true);
+    if (soundButtonObj   != null) soundButtonObj.SetActive(true);
     // usernamePanel only shown when no username set
     if (usernamePanel != null && !PlayerPrefs.HasKey("USERNAME"))
         usernamePanel.SetActive(true);
@@ -1721,10 +1853,11 @@ void CreateSoundButton(GameObject parent)
     rt.anchorMin        = new Vector2(1f, 1f);
     rt.anchorMax        = new Vector2(1f, 1f);
     rt.pivot            = new Vector2(1f, 1f);
-    rt.sizeDelta        = new Vector2(72, 72);
-    rt.anchoredPosition = new Vector2(-16, -100); // just below username badge
+    rt.sizeDelta        = new Vector2(96, 96);
+    rt.anchoredPosition = new Vector2(-16, -155); // below coin pill, clear of top bar
 
     Button btn = soundButtonObj.AddComponent<Button>();
+    btn.targetGraphic = img;
     btn.onClick.AddListener(ToggleSound);
     ColorBlock cb = btn.colors;
     cb.highlightedColor = new Color(0.1f, 0.35f, 0.55f, 1f);
@@ -1749,13 +1882,15 @@ void CreateSoundButton(GameObject parent)
     Sprite soundOffSprite = Resources.Load<Sprite>("SoundOff");
     icon.sprite = isSoundOn ? soundOnSprite : soundOffSprite;
 }
-void ToggleSound()
+public void ToggleSound()
 {
     isSoundOn = !isSoundOn;
 
     AudioListener.volume = isSoundOn ? 1f : 0f;
 
-    PlayerPrefs.SetInt("SOUND", isSoundOn ? 1 : 0);
+    PlayerDataStore.Data.soundOn = isSoundOn;
+    PlayerPrefs.SetInt("SOUND", isSoundOn ? 1 : 0); // backup
+    PlayerDataStore.Save();
 
     if (soundIconImage != null)
     {
@@ -1969,8 +2104,10 @@ IEnumerator RestartDelay(GameBootstrap bootstrap)
 }
 IEnumerator ShowLeaderboardNextFrame(int scoreCount)
 {
-    Debug.Log($"[Leaderboard] ShowLeaderboardNextFrame START — panel={leaderboardPanel?.name ?? "NULL"}, text={leaderboardText != null}, restartBtn={restartButtonObj?.name ?? "NULL"}");
     yield return null;
+
+    // Game restarted while Firebase was fetching — discard stale leaderboard data entirely.
+    if (isRestarting) yield break;
 
     // ── Hide GameBootstrap UI first so full-screen overlay never covers leaderboard ──
     GameBootstrap bootstrap = FindObjectOfType<GameBootstrap>();
@@ -1979,9 +2116,8 @@ IEnumerator ShowLeaderboardNextFrame(int scoreCount)
         if (bootstrap.gameOverPanel != null)
         {
             bootstrap.gameOverPanel.SetActive(false);
-            Debug.Log("[Leaderboard] gameOverPanel hidden");
         }
-        if (bootstrap.scoreText  != null) bootstrap.scoreText.gameObject.SetActive(false);
+        // scoreText lives inside _scoreBoxRoot — hide the root, not the child individually
         bootstrap.HideGameOverUI();
         if (bootstrap.restartButton != null) bootstrap.restartButton.SetActive(false);
         if (bootstrap.reviveButton  != null) bootstrap.reviveButton.SetActive(false);
@@ -1990,7 +2126,6 @@ IEnumerator ShowLeaderboardNextFrame(int scoreCount)
         foreach (var moving in UnityEngine.Object.FindObjectsOfType<Moving>())
             moving.gameObject.SetActive(false);
     }
-    else Debug.LogWarning("[Leaderboard] GameBootstrap NOT found — gameOverPanel may still be visible");
 
     _showingCountries = false; // always show players view
 
@@ -2011,58 +2146,32 @@ IEnumerator ShowLeaderboardNextFrame(int scoreCount)
         leaderboardPanel.SetActive(true);
         leaderboardPanel.transform.SetAsLastSibling();
         var lbRT = leaderboardPanel.GetComponent<RectTransform>();
-        Debug.Log($"[Leaderboard] panel active — sibling={leaderboardPanel.transform.GetSiblingIndex()} size={lbRT?.sizeDelta} pos={lbRT?.anchoredPosition} children={leaderboardPanel.transform.childCount}");
     }
-    else
-        Debug.LogError("[Leaderboard] leaderboardPanel is NULL — nothing will show!");
 
     if (restartButtonObj != null)
     {
         restartButtonObj.SetActive(true);
         restartButtonObj.transform.SetAsLastSibling();
-        Debug.Log("[Leaderboard] restartButtonObj shown");
     }
-    else
-        Debug.LogError("[Leaderboard] restartButtonObj is NULL — restart button missing!");
 
-    Debug.Log($"[Leaderboard] ShowLeaderboardNextFrame DONE");
 }
 
-// void HandleReviveResult()
-// {
-//     if (GameBootstrap.Instance == null) return;
-
-//     if (GameBootstrap.Instance.wasRevived)
-//     {
-//
-
-//         hasRevivedThisRun = true;
-
-//         GameBootstrap.Instance.RevivePlayer();
-//     }
-//     else
-//     {
-//
-
-//         ShowLeaderboardUI(lastScore);
-//     }
-// }
 public void ShowFinalLeaderboard()
 {
     // Uses lastScore set by OnGameOver — no double save needed
     ShowLeaderboardUI(lastScore);
 }
-public string GetUsername()
-{
-    return playerUsername;
-}
-
 public int GetLastScore()
 {
     return lastScore;
 }
 public void OnGameOver(int score)
 {
+    // Guard: GameBootstrap.TriggerGameOver() is the single canonical caller.
+    // This check prevents double-save if the function is somehow reached twice in one session.
+    if (lastScore == score && score > 0) return;
+
+    isRestarting = false; // new game-over cycle — allow leaderboard coroutines to run again
     lastScore = score;
 
     bestScore = PlayerPrefs.GetInt("BestScore", 0);
@@ -2096,7 +2205,7 @@ void ContinueRestart()
     if (scoreTextUI       != null) scoreTextUI.gameObject.SetActive(false);
 
     GameBootstrap bootstrap = FindObjectOfType<GameBootstrap>();
-    if (bootstrap == null) { Debug.LogError("GameBootstrap NOT FOUND"); return; }
+    if (bootstrap == null) { return; }
 
     if (bootstrap.restartButton != null) bootstrap.restartButton.SetActive(false);
     if (bootstrap.reviveButton  != null) bootstrap.reviveButton.SetActive(false);
@@ -2112,7 +2221,7 @@ void ContinueRestart()
 }
 
 // Android-safe sprite helpers (GetBuiltinResource fails on device)
-Sprite GetRoundedSprite()
+public static Sprite GetRoundedSprite()
 {
     int w = 128, h = 64, r = 32;
     var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);

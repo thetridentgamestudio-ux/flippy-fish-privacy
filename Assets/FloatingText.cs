@@ -2,19 +2,23 @@ using UnityEngine;
 
 public class FloatingText : MonoBehaviour
 {
-    private float speed = 1f;
+    private float    speed = 1f;
+    private TextMesh _tm;
+
+    void Awake()
+    {
+        _tm = GetComponent<TextMesh>();
+    }
 
     void Update()
     {
         transform.position += Vector3.up * speed * Time.deltaTime;
 
-        // Fade out
-        TextMesh tm = GetComponent<TextMesh>();
-        if (tm != null)
+        if (_tm != null)
         {
-            Color c = tm.color;
+            Color c = _tm.color;
             c.a -= Time.deltaTime;
-            tm.color = c;
+            _tm.color = c;
         }
 
         Destroy(gameObject, 1f);

@@ -72,6 +72,5 @@ public class OnboardingManager : MonoBehaviour
         btnText.fontSize = 16;
         btnText.color = Color.white;
 
-        Debug.Log("Onboarding shown");
     }
 }

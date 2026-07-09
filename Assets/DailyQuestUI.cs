@@ -115,7 +115,7 @@ public class DailyQuestUI : MonoBehaviour
         GameObject closeGO = new GameObject("CloseHint");
         closeGO.transform.SetParent(questPanelGO.transform, false);
         TextMeshProUGUI closeText = closeGO.AddComponent<TextMeshProUGUI>();
-        closeText.text = "Tap QUESTS button again to close";
+        closeText.text = "Tap the panel to close.";
         closeText.alignment = TextAlignmentOptions.Bottom;
         closeText.fontSize = 16;
         closeText.color = new Color(1, 1, 1, 0.6f);
@@ -131,6 +131,5 @@ public class DailyQuestUI : MonoBehaviour
             Destroy(bgPanelGO);
         });
 
-        Debug.Log("[🎯 DailyQuests] Large quest panel displayed!");
     }
 }

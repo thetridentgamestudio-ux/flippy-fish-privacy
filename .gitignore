@@ -32,6 +32,16 @@ Thumbs.db
 Assets/Firebase/Plugins/x86_64/*.bundle
 Assets/Firebase/Plugins/x86_64/*.so
 
+# Node.js dependencies (restored via npm install)
+firebase/functions/node_modules/
+
+# Unity crash-recovery auto-generated scenes (not source files)
+Assets/_Recovery/
+
+# Scratch/unused assets
+Assets/donot_use.png
+Assets/donot_use.png.meta
+
 # Asset meta files for ignored folders
 [Ll]ibrary.meta
 [Tt]emp.meta

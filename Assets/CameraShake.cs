@@ -38,20 +38,32 @@ public class CameraShake : MonoBehaviour
             instance.StartCoroutine(instance.Shake(duration, intensity));
     }
 
+    public static void StopShake()
+    {
+        if (instance == null) return;
+        instance.StopAllCoroutines();
+        if (instance.cam != null) instance.cam.transform.position = instance.originalPos;
+    }
+
     private IEnumerator Shake(float duration, float intensity)
     {
         float elapsed = 0f;
         while (elapsed < duration)
         {
+            // Reset and exit if paused — prevents infinite loop when Time.timeScale = 0
+            if (Time.timeScale == 0f)
+            {
+                cam.transform.position = originalPos;
+                yield break;
+            }
+
             float x = Random.Range(-intensity, intensity);
             float y = Random.Range(-intensity, intensity);
-            
             cam.transform.position = originalPos + new Vector3(x, y, 0);
-            
             elapsed += Time.deltaTime;
             yield return null;
         }
-        
+
         cam.transform.position = originalPos;
     }
 }

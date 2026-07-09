@@ -63,10 +63,12 @@ public class BackgroundFishAnimator : MonoBehaviour
     Sprite[][]         _sheets;
     List<LiveCreature> _creatures = new List<LiveCreature>();
     float              _spawnTimer;
+    Camera             _cam;
 
     // ── Start: load and auto-slice all sheets ─────────────────────────────────
     void Start()
     {
+        _cam    = Camera.main;
         _sheets = new Sprite[Defs.Length][];
 
         for (int i = 0; i < Defs.Length; i++)
@@ -75,9 +77,6 @@ public class BackgroundFishAnimator : MonoBehaviour
             Texture2D tex = Resources.Load<Texture2D>("FishSheets/" + def.resourceName);
             if (tex == null)
             {
-                Debug.LogError($"[FishAnim] Cannot load FishSheets/{def.resourceName}. " +
-                               "Check: file in Assets/Resources/FishSheets/, " +
-                               "Texture Type = Default, Read/Write = Enabled.");
                 continue;
             }
 
@@ -87,13 +86,10 @@ public class BackgroundFishAnimator : MonoBehaviour
             Sprite[] frames = AutoSlice(tex, def.frameCount, def.resourceName);
             if (frames == null || frames.Length == 0)
             {
-                Debug.LogError($"[FishAnim] AutoSlice failed for {def.resourceName} — no content found.");
                 continue;
             }
 
             _sheets[i] = frames;
-            Debug.Log($"[FishAnim] {def.resourceName}: sliced {frames.Length} frames " +
-                      $"(rect0 = {frames[0].rect})");
         }
     }
 
@@ -120,13 +116,13 @@ public class BackgroundFishAnimator : MonoBehaviour
 
         if (yMax < yMin)
         {
-            Debug.LogError($"[FishAnim] {name}: no opaque pixels found at all");
             return null;
         }
 
         int contentH = yMax - yMin + 1;
-        // Unity Texture2D Y=0 is bottom; PIL/image Y=0 is top — convert
-        int unityY = h - yMax - 1;
+        // GetPixels32 is already in Unity coords (y=0=bottom), so the sprite rect
+        // bottom is simply yMin — no PIL→Unity conversion needed.
+        int unityY = yMin;
 
         // 2. Find horizontal content columns (columns that have any opaque pixel in content rows)
         bool[] hasContent = new bool[w];
@@ -153,13 +149,7 @@ public class BackgroundFishAnimator : MonoBehaviour
         }
         if (inRegion) regions.Add((rStart, w - 1));
 
-        Debug.Log($"[FishAnim] {name}: detected {regions.Count} content regions " +
-                  $"(expected {frameCount}), yMin={yMin} yMax={yMax} unityY={unityY} contentH={contentH}");
-
-        // 4. If detected frame count doesn't match expectation, warn but use what we found
-        if (regions.Count != frameCount)
-            Debug.LogWarning($"[FishAnim] {name}: expected {frameCount} frames but detected {regions.Count}. " +
-                             "Using detected count. Update frameCount in Defs[] to match.");
+        // 4. If detected frame count doesn't match expectation, use what we found
 
         if (regions.Count == 0) return null;
 
@@ -194,8 +184,7 @@ public class BackgroundFishAnimator : MonoBehaviour
         }
 
         float  dt   = Time.deltaTime;
-        Camera cam  = Camera.main;
-        float  kill = cam.orthographicSize * cam.aspect + 5f;
+        float  kill = _cam.orthographicSize * _cam.aspect + 5f;
 
         for (int i = _creatures.Count - 1; i >= 0; i--)
         {
@@ -245,9 +234,8 @@ public class BackgroundFishAnimator : MonoBehaviour
         CreatureDef def    = Defs[defIdx];
         Sprite[]    frames = _sheets[defIdx];
 
-        Camera cam  = Camera.main;
-        float  halfW = cam.orthographicSize * cam.aspect;
-        float  halfH = cam.orthographicSize;
+        float  halfW = _cam.orthographicSize * _cam.aspect;
+        float  halfH = _cam.orthographicSize;
 
         bool  right  = Random.Range(0f, 1f) < 0.15f;
         float spawnX = right ? -(halfW + 2f) : (halfW + 2f);

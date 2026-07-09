@@ -10,10 +10,11 @@ public class AdManager : MonoBehaviour
     private InterstitialAd interstitialAd;
     private RewardedAd rewardedAd;
 
-    bool isAdReady = false;
-    bool isLoadingAd = false;
+    volatile bool isAdReady    = false;
+    volatile bool isLoadingAd  = false;
     bool rewardEarned = false;
     Action rewardCallback;
+    Action skipCallback;
 
     private System.Action pendingInterstitialCallback;
 
@@ -44,11 +45,17 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
 
     void Update()
     {
-        // Drain all queued callbacks on the Unity main thread
-        while (_mainThreadQueue.Count > 0)
+        // Drain all queued callbacks on the Unity main thread.
+        // Count check and Dequeue are inside a single lock to prevent a race where
+        // another thread enqueues between the Count read and the Dequeue call.
+        while (true)
         {
             Action action;
-            lock (_mainThreadQueue) { action = _mainThreadQueue.Dequeue(); }
+            lock (_mainThreadQueue)
+            {
+                if (_mainThreadQueue.Count == 0) break;
+                action = _mainThreadQueue.Dequeue();
+            }
             action?.Invoke();
         }
     }
@@ -61,10 +68,8 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
 
     void Start()
     {
-        Debug.Log("Initializing AdMob...");
         MobileAds.Initialize(initStatus =>
         {
-            Debug.Log("✅ AdMob Initialized");
             LoadRewardedAd();
             LoadInterstitial();
         });
@@ -86,12 +91,10 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
             isLoadingAd = false;
             if (error != null || ad == null)
             {
-                Debug.Log("❌ Failed to load rewarded ad: " + error);
                 isAdReady = false;
                 Invoke(nameof(LoadRewardedAd), 5f);
                 return;
             }
-            Debug.Log("✅ Rewarded Ad Loaded");
             rewardedAd = ad;
             isAdReady  = true;
             RegisterEvents(rewardedAd);
@@ -102,7 +105,6 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
     {
         ad.OnAdFullScreenContentClosed += () =>
         {
-            Debug.Log("Ad Closed");
             RunOnMainThread(() => StartCoroutine(HandleAdClosed()));
             rewardedAd = null;
             isAdReady  = false;
@@ -115,15 +117,17 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
         yield return null;
         if (rewardEarned)
         {
-            Debug.Log("Reward earned — executing callback");
             rewardCallback?.Invoke();
             rewardEarned = false;
         }
         else
         {
-            Debug.Log("Ad closed without reward — skipped");
-            // Do nothing — OnReviveClicked onSkipped handles this case
+            // Ad was shown but user closed it without earning reward — call onSkipped
+            // so game over UI is properly restored and player isn't left in a frozen state
+            skipCallback?.Invoke();
         }
+        rewardCallback = null;
+        skipCallback   = null;
     }
 
     public void ShowAd(Action onRewardEarned, Action onSkipped = null)
@@ -135,20 +139,19 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
         }
         if (rewardedAd != null && rewardedAd.CanShowAd())
         {
-            isAdReady     = false;
+            isAdReady      = false;
             rewardCallback = onRewardEarned;
-            rewardEarned  = false;
+            skipCallback   = onSkipped;
+            rewardEarned   = false;
             AnalyticsEvents.LogAdImpression("rewarded", "revive");
             rewardedAd.Show((Reward reward) =>
             {
-                Debug.Log("✅ Reward earned");
                 rewardEarned = true;
             });
         }
         else
         {
             // Ad not ready yet — try to load and wait up to 10s
-            Debug.Log("Rewarded ad not ready — loading and waiting");
             LoadRewardedAd();
             StartCoroutine(WaitForRewardedThenShow(onRewardEarned, onSkipped, 10f));
         }
@@ -163,10 +166,10 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
             {
                 isAdReady      = false;
                 rewardCallback = onRewardEarned;
+                skipCallback   = onSkipped;
                 rewardEarned   = false;
                 rewardedAd.Show((Reward reward) =>
                 {
-                    Debug.Log("✅ Reward earned");
                     rewardEarned = true;
                 });
                 yield break;
@@ -175,7 +178,6 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
             yield return new WaitForSecondsRealtime(0.5f);
         }
         // Truly unavailable after waiting — now call onSkipped
-        Debug.Log("Rewarded ad unavailable after waiting — skipping");
         onSkipped?.Invoke();
     }
 
@@ -195,7 +197,6 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
         else
         {
             // Ad not ready — try to load then wait up to 3 seconds before fallback
-            Debug.Log("Interstitial not ready — attempting load then wait");
             LoadInterstitial();
             StartCoroutine(WaitForInterstitialThenShow(onComplete, 3f));
         }
@@ -216,7 +217,6 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
             yield return new WaitForSecondsRealtime(0.25f);
         }
         // Timed out — run game without ad
-        Debug.Log("Interstitial load timed out — skipping ad");
         onComplete?.Invoke();
     }
 
@@ -238,16 +238,13 @@ private const string REAL_INTERSTITIAL = "ca-app-pub-1561072595701997/6570717744
         {
             if (error != null || ad == null)
             {
-                Debug.Log("❌ Interstitial failed to load: " + error);
                 Invoke(nameof(LoadInterstitial), 5f);
                 return;
             }
-            Debug.Log("✅ Interstitial loaded");
             interstitialAd = ad;
 
             interstitialAd.OnAdFullScreenContentClosed += () =>
             {
-                Debug.Log("Interstitial closed");
                 // CRITICAL: fire callback on main thread, not ad thread
                 RunOnMainThread(() =>
                 {

@@ -1,11 +1,20 @@
 using UnityEngine;
+using System.Collections;
 
 /// <summary>
-/// Haptic feedback system — vibrate on collisions, coin collect, power-up
-/// Works on Android/iOS via Handheld.Vibrate()
+/// Haptic feedback system — vibrate on collisions, coin collect, power-up.
+/// All Unity APIs (Handheld.Vibrate) are called on the main thread via coroutines.
 /// </summary>
 public class HapticFeedback : MonoBehaviour
 {
+    static HapticFeedback _instance;
+
+    void Awake()
+    {
+        if (_instance == null) { _instance = this; DontDestroyOnLoad(gameObject); }
+        else Destroy(gameObject);
+    }
+
     public static void PlayCollisionHaptic()
     {
         #if UNITY_ANDROID || UNITY_IOS
@@ -15,33 +24,34 @@ public class HapticFeedback : MonoBehaviour
 
     public static void PlayCoinHaptic()
     {
-        // Light tap
-        #if UNITY_ANDROID
-        Handheld.Vibrate();
-        #elif UNITY_IOS
-        // iOS haptics via plugins would go here
+        #if UNITY_ANDROID || UNITY_IOS
         Handheld.Vibrate();
         #endif
     }
 
+    /// <summary>
+    /// Two short vibrations separated by 100 ms.
+    /// Uses a coroutine so both calls stay on the Unity main thread.
+    /// </summary>
     public static void PlayPowerUpHaptic()
     {
-        // Strong vibration with delay
+        if (_instance == null) return;
+        _instance.StartCoroutine(_instance.DoDoubleVibrate());
+    }
+
+    IEnumerator DoDoubleVibrate()
+    {
         #if UNITY_ANDROID || UNITY_IOS
         Handheld.Vibrate();
-        // Schedule second vibration
-        var task = System.Threading.Tasks.Task.Delay(100);
-        task.ContinueWith(_ => {
-            #if UNITY_ANDROID || UNITY_IOS
-            Handheld.Vibrate();
-            #endif
-        });
+        yield return new WaitForSecondsRealtime(0.1f);
+        Handheld.Vibrate();
+        #else
+        yield break;
         #endif
     }
 
     public static void PlayJumpHaptic()
     {
-        // Quick tap
         #if UNITY_ANDROID || UNITY_IOS
         Handheld.Vibrate();
         #endif

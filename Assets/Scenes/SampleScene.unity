@@ -874,53 +874,7 @@ MonoBehaviour:
     bg2: {fileID: 0}
     tileW: 0
     bgY: 0
---- !u!1 &2106976820
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2106976822}
-  - component: {fileID: 2106976821}
-  m_Layer: 0
-  m_Name: ColliderDebugger
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &2106976821
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2106976820}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: db3697f6b1b5648eb8c6e07946b9ecb2, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ColliderDebugger
-  boxColor: {r: 1, g: 0, b: 0, a: 1}
-  circleColor: {r: 0, g: 1, b: 0, a: 1}
-  boundColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
---- !u!4 &2106976822
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2106976820}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -934,7 +888,6 @@ SceneRoots:
   - {fileID: 1671868434}
   - {fileID: 1427815160}
   - {fileID: 1477599256}
-  - {fileID: 2106976822}
   - {fileID: 110573146}
   - {fileID: 1445020296}
   - {fileID: 1449637869}

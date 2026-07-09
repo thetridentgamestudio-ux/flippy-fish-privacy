@@ -92,17 +92,15 @@ public class GhostRaceManager : MonoBehaviour
         _isRecording = false;
         if (_tapTimes.Count < 3)
         {
-            Debug.Log($"[Ghost] EndRun skipped: only {_tapTimes.Count} taps recorded (need >=3). Was StartRecording() called?");
             return;
         }
 
         int best = PlayerPrefs.GetInt("BestScore", 0);
-        Debug.Log($"[Ghost] EndRun: score={score} best={score} taps={_tapTimes.Count} dbReady={_db != null}");
 
-        if (score > 0 && _db != null)
+        // Only write ghost data when this run is a new personal best — avoids
+        // unnecessary Firebase writes and keeps the ghost representing the player's peak.
+        if (score > best && score > 0 && _db != null)
             SaveGhost(username, score, Time.realtimeSinceStartup - _runStartTime);
-        else if (_db == null)
-            Debug.LogWarning("[Ghost] EndRun: Firebase DB not initialized yet — ghost not saved.");
     }
 
     // ── Saving ─────────────────────────────────────────────
@@ -126,10 +124,6 @@ public class GhostRaceManager : MonoBehaviour
         _db.Child("ghosts").Child(key).SetValueAsync(data)
             .ContinueWithOnMainThread(t =>
             {
-                if (t.IsCompletedSuccessfully)
-                    Debug.Log($"[Ghost] Saved ghost for {username} (score {score}, {_tapTimes.Count} taps)");
-                else
-                    Debug.LogWarning("[Ghost] Save failed: " + t.Exception?.Message);
             });
     }
 
@@ -144,7 +138,6 @@ public class GhostRaceManager : MonoBehaviour
             {
                 if (!task.IsCompletedSuccessfully || !task.Result.Exists)
                 {
-                    Debug.Log("[Ghost] No ghosts found in Firebase yet.");
                     return;
                 }
 
@@ -193,12 +186,10 @@ public class GhostRaceManager : MonoBehaviour
                     System.Globalization.CultureInfo.InvariantCulture, out float v))
                     _ghostTapPositions.Add(v);
 
-            Debug.Log($"[Ghost] Loaded ghost: {_ghostUsername} score={_ghostScore} taps={_ghostTapTimes.Count}");
             return _ghostTapTimes.Count > 0;
         }
         catch (System.Exception e)
         {
-            Debug.LogWarning("[Ghost] Parse error: " + e.Message);
             _ghostTapTimes = null;
             return false;
         }

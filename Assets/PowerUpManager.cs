@@ -5,9 +5,9 @@ using System;
 using System.Collections.Generic;
 
 /// <summary>
-/// Power-Up System — 4 active in-run power-ups
-/// Shield, SlowTime, CoinMagnet, DoubleJump
-/// 5% spawn rate, collected like coins
+/// Power-Up System — 5 active in-run power-ups
+/// Shield, SlowTime, CoinMagnet, DoubleJump, SpeedBoost
+/// 10% spawn chance per pipe (score >= 5), collected on overlap
 /// </summary>
 public class PowerUpManager : MonoBehaviour
 {
@@ -33,10 +33,12 @@ public class PowerUpManager : MonoBehaviour
         }
     }
 
+    // Used by Moving.cs and PipeOscillator.cs to slow pipes without touching Time.timeScale
+    public static float PipeSpeedMultiplier { get; private set; } = 1f;
+
     private static PowerUpManager instance;
     private Dictionary<PowerUp.PowerUpType, PowerUp> powerUpDefs = new Dictionary<PowerUp.PowerUpType, PowerUp>();
     private Dictionary<PowerUp.PowerUpType, float> activePowerUps = new Dictionary<PowerUp.PowerUpType, float>();
-    private const float SPAWN_CHANCE = 0.05f; // 5% chance per coin
     private const string SHIELD_KEY = "Shield";
     private const string DOUBLE_JUMP_KEY = "DoubleJump";
 
@@ -49,6 +51,8 @@ public class PowerUpManager : MonoBehaviour
         {
             instance = this;
             DontDestroyOnLoad(gameObject);
+            // Clear any PlayerPrefs-backed flags left over from a previous force-kill
+            ResetForNewGame();
         }
         else
             Destroy(gameObject);
@@ -116,10 +120,7 @@ public class PowerUpManager : MonoBehaviour
 
     public static PowerUp.PowerUpType TrySpawnPowerUp()
     {
-        if (instance == null) return PowerUp.PowerUpType.Shield; // default
-
-        if (UnityEngine.Random.value > SPAWN_CHANCE)
-            return PowerUp.PowerUpType.Shield; // no spawn
+        if (instance == null) return PowerUp.PowerUpType.Shield;
 
         // Weighted random selection
         float totalWeight = 0;
@@ -142,7 +143,6 @@ public class PowerUpManager : MonoBehaviour
     public static void ActivatePowerUp(PowerUp.PowerUpType type)
     {
         if (instance == null) return;
-
         if (!instance.powerUpDefs.ContainsKey(type)) return;
 
         PowerUp def = instance.powerUpDefs[type];
@@ -160,8 +160,7 @@ public class PowerUpManager : MonoBehaviour
                 break;
 
             case PowerUp.PowerUpType.SlowTime:
-                Time.timeScale = 0.5f; // slow game
-                instance.StartCoroutine(instance.ResetTimeScaleCoroutine(def.duration));
+                PipeSpeedMultiplier = 0.5f; // slows pipes and oscillation only — does not affect Time.timeScale
                 break;
 
             case PowerUp.PowerUpType.DoubleJump:
@@ -183,12 +182,6 @@ public class PowerUpManager : MonoBehaviour
         CameraShake.ShakePowerUp();
     }
 
-    System.Collections.IEnumerator ResetTimeScaleCoroutine(float duration)
-    {
-        yield return new WaitForSecondsRealtime(duration);
-        Time.timeScale = 1f;
-    }
-
     public static bool HasShield()
     {
         return PlayerPrefs.GetInt(SHIELD_KEY, 0) == 1;
@@ -201,20 +194,20 @@ public class PowerUpManager : MonoBehaviour
 
     public static bool HasCoinMagnet()
     {
+        if (instance == null) return false;
         return instance.activePowerUps.ContainsKey(PowerUp.PowerUpType.CoinMagnet) &&
                instance.activePowerUps[PowerUp.PowerUpType.CoinMagnet] > 0;
     }
 
     public static bool HasSlowTime()
     {
-        return Time.timeScale < 0.9f;
+        return PipeSpeedMultiplier < 0.9f;
     }
 
     public static void ConsumeShield()
     {
         PlayerPrefs.SetInt(SHIELD_KEY, 0);
         OnPowerUpExpired?.Invoke(PowerUp.PowerUpType.Shield);
-        Debug.Log("Shield consumed");
     }
 
     public static void ConsumeDoubleJump()
@@ -242,19 +235,56 @@ public class PowerUpManager : MonoBehaviour
             {
                 activePowerUps.Remove(type);
                 OnPowerUpExpired?.Invoke(type);
-                Debug.Log($"Power-Up Expired: {type}");
 
                 if (type == PowerUp.PowerUpType.SlowTime)
-                    Time.timeScale = 1f;
+                    PipeSpeedMultiplier = 1f;
             }
         }
+    }
+
+    /// Called on revive — syncs PlayerPrefs-backed flags (Shield, DoubleJump) with the live
+    /// duration tracker. If a power-up's timer ran out during the death/revive screen,
+    /// the PlayerPrefs flag is cleared so the player doesn't carry a phantom ability.
+    /// Also resets PipeSpeedMultiplier so SlowTime can't silently persist through revive.
+    public static void SyncStateForRevive()
+    {
+        if (instance == null) return;
+
+        // Shield: if duration timer expired during death screen, clear the PlayerPrefs flag
+        bool shieldDurationActive = instance.activePowerUps.ContainsKey(PowerUp.PowerUpType.Shield)
+                                    && instance.activePowerUps[PowerUp.PowerUpType.Shield] > 0f;
+        if (!shieldDurationActive && PlayerPrefs.GetInt(SHIELD_KEY, 0) == 1)
+        {
+            PlayerPrefs.SetInt(SHIELD_KEY, 0);
+            OnPowerUpExpired?.Invoke(PowerUp.PowerUpType.Shield);
+        }
+
+        // DoubleJump: if duration timer expired during death screen, clear the PlayerPrefs flag
+        bool djDurationActive = instance.activePowerUps.ContainsKey(PowerUp.PowerUpType.DoubleJump)
+                                && instance.activePowerUps[PowerUp.PowerUpType.DoubleJump] > 0f;
+        if (!djDurationActive && PlayerPrefs.GetInt(DOUBLE_JUMP_KEY, 0) == 1)
+        {
+            PlayerPrefs.SetInt(DOUBLE_JUMP_KEY, 0);
+            OnPowerUpExpired?.Invoke(PowerUp.PowerUpType.DoubleJump);
+        }
+
+        // SlowTime: always reset pipe speed on revive — player must re-earn it
+        if (instance.activePowerUps.ContainsKey(PowerUp.PowerUpType.SlowTime))
+        {
+            instance.activePowerUps.Remove(PowerUp.PowerUpType.SlowTime);
+            OnPowerUpExpired?.Invoke(PowerUp.PowerUpType.SlowTime);
+        }
+        PipeSpeedMultiplier = 1f;
+
+        // SpeedBoost: duration-only, no PlayerPrefs flag needed — already handled by
+        // PlayerController.ResetPlayer() stopping the coroutine
     }
 
     public static void ResetForNewGame()
     {
         PlayerPrefs.SetInt(SHIELD_KEY, 0);
         PlayerPrefs.SetInt(DOUBLE_JUMP_KEY, 0);
-        Time.timeScale = 1f;
-        instance.activePowerUps.Clear();
+        PipeSpeedMultiplier = 1f;
+        if (instance != null) instance.activePowerUps.Clear();
     }
 }
