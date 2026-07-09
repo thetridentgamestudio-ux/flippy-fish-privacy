@@ -87,10 +87,23 @@ public class SkinSelectUI : MonoBehaviour
 
         // Resolve canvas here rather than in Awake — guarantees it exists at build time
         if (_canvas == null) _canvas = GetComponentInParent<Canvas>();
+        if (_canvas == null)
+        {
+            // Prefer the ScaleWithScreenSize canvas (1080×1920) over GameBootstrap's
+            // unconfigured ConstantPixelSize fallback; wrong canvas collapses 3-col grid to 1-col
+            foreach (var c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+            {
+                var scaler = c.GetComponent<CanvasScaler>();
+                if (scaler != null && scaler.uiScaleMode == CanvasScaler.ScaleMode.ScaleWithScreenSize)
+                {
+                    _canvas = c;
+                    break;
+                }
+            }
+        }
         if (_canvas == null) _canvas = FindFirstObjectByType<Canvas>();
         if (_canvas == null)
         {
-            Debug.LogError("[SkinSelectUI] No Canvas found in scene — cannot build skin UI");
             return;
         }
 
@@ -504,7 +517,7 @@ public class SkinSelectUI : MonoBehaviour
         if (equipped)
         {
             _actionBtnImg.color = new Color(0.00f, 0.65f, 0.55f);
-            _actionBtnTxt.text  = "EQUIPPED  v";
+            _actionBtnTxt.text  = "EQUIPPED";
         }
         else if (unlocked)
         {

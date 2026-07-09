@@ -28,37 +28,41 @@ public static class SkinManager
 
     // ── Coins ──────────────────────────────────────────────────────────────────
 
-    public static int GetCoins() => PlayerPrefs.GetInt("Coins", 0);
+    public static int GetCoins() => PlayerDataStore.Data.coins;
 
     public static void AddCoins(int amount)
     {
-        PlayerPrefs.SetInt("Coins", GetCoins() + amount);
+        PlayerDataStore.Data.coins += amount;
+        // Keep PlayerPrefs in sync as secondary backup
+        PlayerPrefs.SetInt("Coins", PlayerDataStore.Data.coins);
     }
 
     public static void OnPipePassed(int currentScore)
     {
         AddCoins(1);
 
-        if (currentScore >= 25 && PlayerPrefs.GetInt("Milestone25", 0) == 0)
-        { PlayerPrefs.SetInt("Milestone25", 1); AddCoins(5); }
+        if (currentScore >= 25 && !PlayerDataStore.Data.milestone25)
+        { PlayerDataStore.Data.milestone25 = true; PlayerPrefs.SetInt("Milestone25", 1); AddCoins(5); }
 
-        if (currentScore >= 50 && PlayerPrefs.GetInt("Milestone50", 0) == 0)
-        { PlayerPrefs.SetInt("Milestone50", 1); AddCoins(5); }
+        if (currentScore >= 50 && !PlayerDataStore.Data.milestone50)
+        { PlayerDataStore.Data.milestone50 = true; PlayerPrefs.SetInt("Milestone50", 1); AddCoins(5); }
 
-        if (currentScore >= 75 && PlayerPrefs.GetInt("Milestone75", 0) == 0)
-        { PlayerPrefs.SetInt("Milestone75", 1); AddCoins(5); }
+        if (currentScore >= 75 && !PlayerDataStore.Data.milestone75)
+        { PlayerDataStore.Data.milestone75 = true; PlayerPrefs.SetInt("Milestone75", 1); AddCoins(5); }
     }
 
     public static void OnNewBest() => AddCoins(3);
 
     // ── Skins ──────────────────────────────────────────────────────────────────
 
-    public static int GetSelectedSkin() => PlayerPrefs.GetInt(SELECTED_KEY, 0);
+    public static int GetSelectedSkin() => PlayerDataStore.Data.selectedSkin;
 
     public static bool IsUnlocked(int skinId)
     {
         if (skinId == 0) return true;
-        return PlayerPrefs.GetInt(UnlockKey(skinId), 0) == 1;
+        var d = PlayerDataStore.Data;
+        if (d.skinsUnlocked == null || skinId >= d.skinsUnlocked.Length) return false;
+        return d.skinsUnlocked[skinId];
     }
 
     public static bool TryPurchase(int skinId)
@@ -67,7 +71,9 @@ public static class SkinManager
         int cost = SkinCosts[skinId];
         if (GetCoins() < cost) return false;
         AddCoins(-cost);
-        PlayerPrefs.SetInt(UnlockKey(skinId), 1);
+        PlayerDataStore.Data.skinsUnlocked[skinId] = true;
+        PlayerPrefs.SetInt(UnlockKey(skinId), 1); // backup
+        PlayerDataStore.Save();
         PlayerPrefs.Save();
         AnalyticsEvents.LogCosmeticPurchased("skin", SkinNames[skinId], cost);
         return true;
@@ -76,7 +82,9 @@ public static class SkinManager
     public static void SelectSkin(int skinId)
     {
         if (!IsUnlocked(skinId)) return;
-        PlayerPrefs.SetInt(SELECTED_KEY, skinId);
+        PlayerDataStore.Data.selectedSkin = skinId;
+        PlayerPrefs.SetInt(SELECTED_KEY, skinId); // backup
+        PlayerDataStore.Save();
         PlayerPrefs.Save();
     }
 
