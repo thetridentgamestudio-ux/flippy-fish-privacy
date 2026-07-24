@@ -2140,6 +2140,9 @@ IEnumerator ShowLeaderboardNextFrame(int scoreCount)
         if (bootstrap.reviveButton  != null) bootstrap.reviveButton.SetActive(false);
         if (bootstrap.player != null) bootstrap.player.SetActive(false);
 
+        // Dismiss any in-flight quest/streak toast — leaderboard is full-screen
+        bootstrap.DismissToast();
+
         foreach (var moving in UnityEngine.Object.FindObjectsOfType<Moving>())
             moving.gameObject.SetActive(false);
     }

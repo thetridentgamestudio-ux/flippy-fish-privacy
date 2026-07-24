@@ -132,7 +132,7 @@ public class DailyQuestManager : MonoBehaviour
 
                 // Show completion toast so player knows they earned coins
                 GameBootstrap.Instance?.ShowToast(
-                    $"Quest done!  {quest.title}  +{quest.rewardCoins} 🪙",
+                    $"Quest done!  {quest.title}  +{quest.rewardCoins} coins",
                     new Color(0.15f, 0.85f, 0.45f));
 
                 bool allDone = instance.dailyQuests.TrueForAll(q => q.completed);
@@ -140,7 +140,7 @@ public class DailyQuestManager : MonoBehaviour
                 {
                     AnalyticsEvents.LogAllDailyQuestsCompleted(GetTotalQuestReward());
                     GameBootstrap.Instance?.ShowToast(
-                        "All daily quests complete! 🎉", new Color(1f, 0.82f, 0.1f));
+                        "All daily quests complete!", new Color(1f, 0.82f, 0.1f));
                 }
             }
         }

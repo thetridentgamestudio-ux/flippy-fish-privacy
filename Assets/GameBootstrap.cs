@@ -1272,10 +1272,7 @@ public void StartGame()
 {
     if (player != null) player.SetActive(true);
     PowerUpManager.ResetForNewGame();
-    // Dismiss any lingering quest/streak toast from the previous run
-    if (_activeToast != null) { StopCoroutine(_activeToast); _activeToast = null; }
-    var oldToast = mainCanvas?.transform.Find("Toast");
-    if (oldToast != null) Destroy(oldToast.gameObject);
+    DismissToast();
     _currentSpeed    = 4.0f;
     _currentGravity  = 1.0f;
     lastGap          = 3.2f;
@@ -1412,10 +1409,7 @@ void CreateUIText()
 public void RestartGame(bool directStart = true)
 {
     if (player != null) player.SetActive(true);
-    // Dismiss any lingering quest/streak toast from the previous run
-    if (_activeToast != null) { StopCoroutine(_activeToast); _activeToast = null; }
-    var oldToast = mainCanvas?.transform.Find("Toast");
-    if (oldToast != null) Destroy(oldToast.gameObject);
+    DismissToast();
     // Do NOT clear _isMultiplayerRound here.
     // StartMultiplayerRound() sets it true AFTER calling RestartGame() — clearing it here
     // would always make it false by the time TriggerGameOver() checks it.
@@ -4209,6 +4203,14 @@ IEnumerator ShowStreakToastDelayed(int coins)
 
 // ── TOAST NOTIFICATION ───────────────────────────────────────────────────
 // Slide-in banner for achievements, streaks, etc.
+// Immediately kills any in-flight toast — call before showing full-screen overlays.
+public void DismissToast()
+{
+    if (_activeToast != null) { StopCoroutine(_activeToast); _activeToast = null; }
+    var t = mainCanvas?.transform.Find("Toast");
+    if (t != null) Destroy(t.gameObject);
+}
+
 // Safe to call from any context — replaces an in-flight toast automatically.
 public void ShowToast(string message, Color? accentColor = null)
 {
