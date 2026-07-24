@@ -3280,14 +3280,14 @@ void CreateGameOverButtons()
     RectTransform restartRT = restartButton.GetComponent<RectTransform>();
     restartRT.anchorMin = new Vector2(0.5f,0.5f); restartRT.anchorMax = new Vector2(0.5f,0.5f);
     restartRT.pivot     = new Vector2(0.5f,0.5f);
-    restartRT.sizeDelta        = new Vector2(cardW - 60f, 96f);
-    restartRT.anchoredPosition = new Vector2(0f, -226f);
+    restartRT.sizeDelta        = new Vector2(cardW - 60f, 116f);
+    restartRT.anchoredPosition = new Vector2(0f, -236f);
     if (restartSpr == null)
     {
         GameObject rsLblGO = new GameObject("RestartLabel");
         rsLblGO.transform.SetParent(restartButton.transform, false);
         TextMeshProUGUI rsLbl = rsLblGO.AddComponent<TextMeshProUGUI>();
-        rsLbl.text = "Restart"; rsLbl.font = tmpFont; rsLbl.fontSize = 42;
+        rsLbl.text = "Restart"; rsLbl.font = tmpFont; rsLbl.fontSize = 48;
         rsLbl.fontStyle = FontStyles.Bold; rsLbl.color = Color.white;
         rsLbl.outlineColor = new Color(0f,0.3f,0.35f,1f); rsLbl.outlineWidth = 0.2f;
         rsLbl.alignment = TextAlignmentOptions.Center;
