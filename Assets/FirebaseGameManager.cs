@@ -179,9 +179,6 @@ Canvas mainCanvas;
             elapsed += 0.5f;
             yield return new WaitForSecondsRealtime(0.5f);
         }
-        // Give the score submission Cloud Function time to write to Firebase
-        // before fetching the leaderboard, so the player's own score appears.
-        yield return new WaitForSecondsRealtime(2.5f);
         // Game may have restarted while we were waiting — don't bleed leaderboard UI into the new run.
         if (isRestarting) yield break;
         if (isFirebaseReady)
@@ -263,10 +260,6 @@ public void ShowLeaderboardUI(int score, int topCount = 20)
 {
     // Don't bleed leaderboard UI into a game that has already restarted.
     if (isRestarting) return;
-
-    // Always go through the coroutine so the 2.5s post-submit delay is respected
-    StartCoroutine(WaitThenShowLeaderboard(score, topCount));
-    return;
 
    GameObject canvas = mainCanvas.gameObject;
     if (!isFirebaseReady)
