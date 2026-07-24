@@ -148,13 +148,6 @@ Canvas mainCanvas;
     {
         if (usernamePanel != null) usernamePanel.SetActive(true);
         if (leaderboardPanel != null) leaderboardPanel.SetActive(false);
-        // Hide ribbon and glow on first launch — no high score yet, ribbon overlaps username input
-        var gb = GameBootstrap.Instance;
-        if (gb != null)
-        {
-            if (gb.bestScoreCard != null) gb.bestScoreCard.SetActive(false);
-            if (gb.bestScoreGlow != null) gb.bestScoreGlow.SetActive(false);
-        }
     }
 
     

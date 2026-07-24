@@ -2548,6 +2548,13 @@ void CreateBestScoreText()
 
     RefreshBestScore();
 
+    // Hide ribbon on first launch — username not set yet, ribbon overlaps the input
+    if (!PlayerPrefs.HasKey("USERNAME"))
+    {
+        bestScoreCard.SetActive(false);
+        bestScoreGlow.SetActive(false);
+    }
+
     // ── Tagline ────────────────────────────────────────────────────────
     GameObject tagGO = new GameObject("Tagline");
     tagGO.transform.SetParent(mainCanvas.transform, false);
