@@ -194,6 +194,7 @@ Canvas mainCanvas;
     public void StartNewSession()
     {
         isRestarting = true;
+        lastScore = 0; // reset so OnGameOver's double-save guard doesn't block post-revive deaths
         _currentSessionId = System.Guid.NewGuid().ToString();
         _sessionStartTime = Time.realtimeSinceStartup;
         if (scoreTextUI != null) scoreTextUI.gameObject.SetActive(false);
