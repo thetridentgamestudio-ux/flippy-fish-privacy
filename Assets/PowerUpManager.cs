@@ -71,7 +71,7 @@ public class PowerUpManager : MonoBehaviour
         powerUpDefs[PowerUp.PowerUpType.Shield] = new PowerUp(
             PowerUp.PowerUpType.Shield,
             "Shield",
-            15f, // stays active for 15 seconds
+            20f, // stays active for 20 seconds
             "Negate 1 collision",
             new Color(0.2f, 1f, 0.8f), // cyan
             8 // common
@@ -81,7 +81,7 @@ public class PowerUpManager : MonoBehaviour
         powerUpDefs[PowerUp.PowerUpType.SlowTime] = new PowerUp(
             PowerUp.PowerUpType.SlowTime,
             "Slow Time",
-            8f,
+            13f,
             "Slow pipes by 50%",
             new Color(1f, 0.5f, 0.2f), // orange
             5 // medium
@@ -91,7 +91,7 @@ public class PowerUpManager : MonoBehaviour
         powerUpDefs[PowerUp.PowerUpType.CoinMagnet] = new PowerUp(
             PowerUp.PowerUpType.CoinMagnet,
             "Coin Magnet",
-            10f,
+            15f,
             "Attract all coins",
             new Color(1f, 0.85f, 0.2f), // gold
             7 // common
@@ -101,7 +101,7 @@ public class PowerUpManager : MonoBehaviour
         powerUpDefs[PowerUp.PowerUpType.DoubleJump] = new PowerUp(
             PowerUp.PowerUpType.DoubleJump,
             "Double Jump",
-            12f,
+            17f,
             "Extra jump in air",
             new Color(1f, 0.2f, 0.6f), // magenta
             4 // rare
@@ -111,7 +111,7 @@ public class PowerUpManager : MonoBehaviour
         powerUpDefs[PowerUp.PowerUpType.SpeedBoost] = new PowerUp(
             PowerUp.PowerUpType.SpeedBoost,
             "Speed Boost",
-            6f,
+            11f,
             "Turbo jump for 6s",
             new Color(1f, 0.85f, 0f), // bright yellow
             5 // medium

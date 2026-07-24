@@ -94,14 +94,14 @@ public class PowerUpHUD : MonoBehaviour
         card.transform.SetParent(transform, false);
 
         var cardRT = card.AddComponent<RectTransform>();
-        cardRT.sizeDelta = new Vector2(120f, 100f);
+        cardRT.sizeDelta = new Vector2(120f, 120f);
 
         // Explicit layout size so HorizontalLayoutGroup measures cards correctly
         var le = card.AddComponent<LayoutElement>();
         le.preferredWidth  = 120f;
-        le.preferredHeight = 100f;
+        le.preferredHeight = 120f;
         le.minWidth        = 120f;
-        le.minHeight       = 100f;
+        le.minHeight       = 120f;
 
         // Semi-transparent dark background
         var bgImg = card.AddComponent<Image>();
@@ -149,7 +149,24 @@ public class PowerUpHUD : MonoBehaviour
         }
         // If no sprite loaded, leave the Image with no sprite (invisible) — ring shows def colour anyway
 
-        // ── Timer text (below ring) ──────────────────────────────────────────
+        // ── Name label (above timer, shows power-up name) ───────────────────
+        GameObject nameGO = new GameObject("Name");
+        nameGO.transform.SetParent(card.transform, false);
+        var nameTxt = nameGO.AddComponent<TextMeshProUGUI>();
+        nameTxt.text      = def.name.ToUpper();
+        nameTxt.fontSize  = 16;
+        nameTxt.fontStyle = FontStyles.Bold;
+        nameTxt.color     = def.color;
+        nameTxt.alignment = TextAlignmentOptions.Center;
+
+        var nameRT = nameTxt.rectTransform;
+        nameRT.anchorMin        = new Vector2(0f, 0f);
+        nameRT.anchorMax        = new Vector2(1f, 0f);
+        nameRT.pivot            = new Vector2(0.5f, 0f);
+        nameRT.sizeDelta        = new Vector2(0f, 22f);
+        nameRT.anchoredPosition = new Vector2(0f, 30f);
+
+        // ── Timer text (below name) ──────────────────────────────────────────
         GameObject timerGO = new GameObject("Timer");
         timerGO.transform.SetParent(card.transform, false);
         var timerTxt = timerGO.AddComponent<TextMeshProUGUI>();

@@ -39,8 +39,8 @@ public GameObject restartButton;
     GameObject ground;
     Image gameLogo;
     TextMeshProUGUI bestScoreText;
-    GameObject bestScoreCard;
-    GameObject bestScoreGlow;
+    public GameObject bestScoreCard;
+    public GameObject bestScoreGlow;
     GameObject bestScoreLabel;   // "BEST" text GameObject (separate from card)
 
     // Cached expensive lookups — populated in Start, reused every pipe pass
@@ -468,7 +468,7 @@ void CreateBackground()
 void CreateBounds()
     {
         // Ground collision handled by Ground1/Ground2 colliders in CreateGround()
-        CreateBound("Ceiling", new Vector3(8, 8f, 0), 30f, 1f);
+        CreateBound("Ceiling", new Vector3(8, 9.5f, 0), 30f, 1f);
     }
     void CreateBound(string name, Vector3 pos, float width, float height)
     {
@@ -1272,6 +1272,10 @@ public void StartGame()
 {
     if (player != null) player.SetActive(true);
     PowerUpManager.ResetForNewGame();
+    // Dismiss any lingering quest/streak toast from the previous run
+    if (_activeToast != null) { StopCoroutine(_activeToast); _activeToast = null; }
+    var oldToast = mainCanvas?.transform.Find("Toast");
+    if (oldToast != null) Destroy(oldToast.gameObject);
     _currentSpeed    = 4.0f;
     _currentGravity  = 1.0f;
     lastGap          = 3.2f;
@@ -1408,6 +1412,10 @@ void CreateUIText()
 public void RestartGame(bool directStart = true)
 {
     if (player != null) player.SetActive(true);
+    // Dismiss any lingering quest/streak toast from the previous run
+    if (_activeToast != null) { StopCoroutine(_activeToast); _activeToast = null; }
+    var oldToast = mainCanvas?.transform.Find("Toast");
+    if (oldToast != null) Destroy(oldToast.gameObject);
     // Do NOT clear _isMultiplayerRound here.
     // StartMultiplayerRound() sets it true AFTER calling RestartGame() — clearing it here
     // would always make it false by the time TriggerGameOver() checks it.
