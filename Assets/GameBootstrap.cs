@@ -2575,6 +2575,10 @@ void CreateBestScoreText()
     tagRT.pivot     = new Vector2(0.5f, 0.5f);
     tagRT.sizeDelta        = new Vector2(700, 58);
     tagRT.anchoredPosition = new Vector2(0, 20);
+
+    // Hide tagline on first launch — username panel occupies the same space
+    if (!PlayerPrefs.HasKey("USERNAME"))
+        tagGO.SetActive(false);
 }
 
 void RefreshBestScore()

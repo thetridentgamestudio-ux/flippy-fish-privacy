@@ -635,36 +635,54 @@ IEnumerator RestorePlayerTab()
         usernamePanel = new GameObject("UsernamePanel");
         usernamePanel.transform.SetParent(canvasGO.transform, false);
         var panelRect = usernamePanel.AddComponent<RectTransform>();
-        panelRect.sizeDelta        = new Vector2(580, 290);
+        panelRect.sizeDelta        = new Vector2(700, 340);
         panelRect.anchorMin        = new Vector2(0.5f, 0.5f);
         panelRect.anchorMax        = new Vector2(0.5f, 0.5f);
         panelRect.pivot            = new Vector2(0.5f, 0.5f);
-        panelRect.anchoredPosition = new Vector2(0, 120);
+        panelRect.anchoredPosition = new Vector2(0, -80);
+        // Transparent panel — no dark box, input and button float over the background
         var panelImage = usernamePanel.AddComponent<UnityEngine.UI.Image>();
-        panelImage.color = new Color(0.04f, 0.10f, 0.22f, 0.96f);
+        panelImage.color = Color.clear;
 
-        // Input field
+        // ── "Choose your name" label ──────────────────────────────────────────
+        var labelGO  = new GameObject("ChooseLabel");
+        labelGO.transform.SetParent(usernamePanel.transform, false);
+        var labelTxt = labelGO.AddComponent<TextMeshProUGUI>();
+        labelTxt.text      = "CHOOSE YOUR NAME";
+        labelTxt.fontSize  = 36;
+        labelTxt.fontStyle = FontStyles.Bold;
+        labelTxt.color     = new Color(1f, 0.92f, 0.3f);
+        labelTxt.outlineColor = new Color(0f, 0.04f, 0.10f);
+        labelTxt.outlineWidth = 0.4f;
+        labelTxt.alignment = TextAlignmentOptions.Center;
+        var labelRT = labelTxt.rectTransform;
+        labelRT.anchorMin = new Vector2(0f, 1f); labelRT.anchorMax = new Vector2(1f, 1f);
+        labelRT.pivot = new Vector2(0.5f, 1f);
+        labelRT.sizeDelta = new Vector2(0, 56); labelRT.anchoredPosition = new Vector2(0, -8);
+
+        // ── Input field ───────────────────────────────────────────────────────
         var inputGO   = new GameObject("UsernameInput");
         inputGO.transform.SetParent(usernamePanel.transform, false);
         var inputRect = inputGO.AddComponent<RectTransform>();
-        inputRect.sizeDelta        = new Vector2(460, 80);
-        inputRect.anchoredPosition = new Vector2(0, 70);
-        inputGO.AddComponent<UnityEngine.UI.Image>().color = Color.white;
+        inputRect.sizeDelta        = new Vector2(620, 90);
+        inputRect.anchoredPosition = new Vector2(0, 60);
+        var inputBg = inputGO.AddComponent<UnityEngine.UI.Image>();
+        inputBg.color = new Color(1f, 1f, 1f, 0.95f);
         usernameInput = inputGO.AddComponent<TMP_InputField>();
 
         var textGO = new GameObject("Text");
         textGO.transform.SetParent(inputGO.transform, false);
         var inputTxt = textGO.AddComponent<TextMeshProUGUI>();
-        inputTxt.fontSize = 34; inputTxt.alignment = TextAlignmentOptions.Center; inputTxt.color = Color.black;
+        inputTxt.fontSize = 38; inputTxt.alignment = TextAlignmentOptions.Center; inputTxt.color = Color.black;
         var tRect = inputTxt.rectTransform;
         tRect.anchorMin = Vector2.zero; tRect.anchorMax = Vector2.one;
-        tRect.offsetMin = tRect.offsetMax = Vector2.zero;
+        tRect.offsetMin = new Vector2(12, 0); tRect.offsetMax = new Vector2(-12, 0);
         usernameInput.textComponent = inputTxt;
 
         var phGO  = new GameObject("Placeholder");
         phGO.transform.SetParent(inputGO.transform, false);
         var ph = phGO.AddComponent<TextMeshProUGUI>();
-        ph.text = "Enter Username"; ph.fontSize = 34; ph.color = Color.gray;
+        ph.text = "Enter Username"; ph.fontSize = 38; ph.color = new Color(0.55f, 0.55f, 0.55f);
         ph.alignment = TextAlignmentOptions.Center;
         var phRect = ph.rectTransform;
         phRect.anchorMin = Vector2.zero; phRect.anchorMax = Vector2.one;
@@ -673,24 +691,18 @@ IEnumerator RestorePlayerTab()
         usernameInput.characterLimit = 12;
         usernameInput.contentType = TMP_InputField.ContentType.Alphanumeric;
 
-        // Submit button inside panel
+        // ── Submit button — uses start_button sprite to match returning user screen ──
         var submitGO  = new GameObject("SubmitButton");
         submitGO.transform.SetParent(usernamePanel.transform, false);
         var submitImg = submitGO.AddComponent<Image>();
-        submitImg.color = new Color(0.05f, 0.55f, 0.85f);
+        Sprite startSpr = Resources.Load<Sprite>("start_button");
+        if (startSpr != null) { submitImg.sprite = startSpr; submitImg.color = Color.white; submitImg.preserveAspect = false; }
+        else submitImg.color = new Color(0.05f, 0.60f, 0.85f);
         var submitBtn = submitGO.AddComponent<Button>();
         submitBtn.targetGraphic = submitImg;
         submitBtn.onClick.AddListener(OnSubmitUsername);
-        var submitLblGO = new GameObject("Label");
-        submitLblGO.transform.SetParent(submitGO.transform, false);
-        var submitLbl = submitLblGO.AddComponent<TextMeshProUGUI>();
-        submitLbl.text = "PLAY"; submitLbl.fontSize = 36; submitLbl.fontStyle = FontStyles.Bold;
-        submitLbl.alignment = TextAlignmentOptions.Center; submitLbl.color = Color.white;
-        var slRT = submitLbl.rectTransform;
-        slRT.anchorMin = Vector2.zero; slRT.anchorMax = Vector2.one;
-        slRT.offsetMin = slRT.offsetMax = Vector2.zero;
         var submitRT = submitGO.GetComponent<RectTransform>();
-        submitRT.sizeDelta = new Vector2(460, 100); submitRT.anchoredPosition = new Vector2(0, -60);
+        submitRT.sizeDelta = new Vector2(700, 168); submitRT.anchoredPosition = new Vector2(0, -110);
         usernamePanel.SetActive(!PlayerPrefs.HasKey("USERNAME"));
 
         // ── MAIN BUTTONS LAYER ────────────────────────────────────────────────
@@ -717,6 +729,11 @@ IEnumerator RestorePlayerTab()
         }
 
         MakeSpriteButton(_mainButtonsRoot.transform, "StartButton", "start_button", -300f, 176f, OnSubmitUsername);
+
+        // On first launch: hide the START button — username panel has its own START button
+        // On returning launch: username panel is hidden, START button is the only CTA
+        if (!PlayerPrefs.HasKey("USERNAME"))
+            _mainButtonsRoot.SetActive(false);
 
         // Sound button lives in menu (top-right). Hidden during gameplay; pause overlay provides in-run toggle.
         CreateSoundButton(usernamePanel);
