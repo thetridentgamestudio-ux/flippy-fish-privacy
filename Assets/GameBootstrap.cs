@@ -1181,6 +1181,7 @@ public void TriggerGameOver()
             HideGameOverUI();
             if (gameOverPanel != null) gameOverPanel.SetActive(false);
             if (firebase != null) firebase.OnGameOver(Score);
+            if (firebase != null) firebase.SetSoundButtonVisible(true);
             if (firebase != null) firebase.ShowLeaderboardUI(Score);
             return;
         }
@@ -1212,8 +1213,9 @@ public void TriggerGameOver()
             if (reviveButton  != null) reviveButton.SetActive(canRevive);
             if (restartButton != null) restartButton.SetActive(true);
 
-            // Show skins button on solo game over
+            // Show skins button and sound button on solo game over
             if (firebase != null) firebase.SetSkinsButtonVisible(true);
+            if (firebase != null) firebase.SetSoundButtonVisible(true);
 
             // ── Skin unlock hint (lives inside Footer child) ──────────────────
             TextMeshProUGUI hint = FindTMPInChildren(gameOverPanel.transform, "NextUnlockHint");
@@ -3127,7 +3129,8 @@ void CreateGameOverButtons()
     panelRT.offsetMin = panelRT.offsetMax = Vector2.zero;
 
     // ── Glowing teal border (slightly larger card behind) ─────────────────
-    float cardW = 520f, cardH = 880f;
+    // cardH reduced from 880→760; card shifted up so all inner element positions are unchanged.
+    float cardW = 520f, cardH = 760f;
     GameObject glowBorder = new GameObject("GlowBorder");
     glowBorder.transform.SetParent(panel.transform, false);
     Image gbImg = glowBorder.AddComponent<Image>();
@@ -3137,7 +3140,7 @@ void CreateGameOverButtons()
     gbRT.anchorMin = new Vector2(0.5f,0.5f); gbRT.anchorMax = new Vector2(0.5f,0.5f);
     gbRT.pivot     = new Vector2(0.5f,0.5f);
     gbRT.sizeDelta = new Vector2(cardW + 14f, cardH + 14f);
-    gbRT.anchoredPosition = new Vector2(0f, 30f);
+    gbRT.anchoredPosition = new Vector2(0f, 90f);
 
     // ── Card body ─────────────────────────────────────────────────────────
     GameObject card = new GameObject("Card");
@@ -3149,7 +3152,7 @@ void CreateGameOverButtons()
     cardRT.anchorMin = new Vector2(0.5f,0.5f); cardRT.anchorMax = new Vector2(0.5f,0.5f);
     cardRT.pivot     = new Vector2(0.5f,0.5f);
     cardRT.sizeDelta = new Vector2(cardW, cardH);
-    cardRT.anchoredPosition = new Vector2(0f, 30f);
+    cardRT.anchoredPosition = new Vector2(0f, 90f);
 
     // ── "GAME OVER" label (hidden — kept for code compatibility) ──────────
     // gameOverText is expected by FadeInGameOverUI — give it a real but invisible node
@@ -3303,14 +3306,16 @@ void CreateGameOverButtons()
     Sprite qaQuestSpr = Resources.Load<Sprite>("btn_quest");
     Sprite qaSkinSpr  = Resources.Load<Sprite>("icon_skins");
 
+    // Quick-access row lives on the panel (fullscreen overlay), NOT inside the card.
+    // Anchored to the bottom of the screen so it sits below the card like the start-screen nav.
     GameObject qaRow = new GameObject("QuickAccessRow");
-    qaRow.transform.SetParent(card.transform, false);
+    qaRow.transform.SetParent(panel.transform, false);
     var qaRowRT = qaRow.AddComponent<RectTransform>();
-    qaRowRT.anchorMin = new Vector2(0.5f, 0.5f);
-    qaRowRT.anchorMax = new Vector2(0.5f, 0.5f);
-    qaRowRT.pivot     = new Vector2(0.5f, 0.5f);
+    qaRowRT.anchorMin = new Vector2(0.5f, 0f);
+    qaRowRT.anchorMax = new Vector2(0.5f, 0f);
+    qaRowRT.pivot     = new Vector2(0.5f, 0f);
     qaRowRT.sizeDelta = new Vector2(cardW - 60f, 90f);
-    qaRowRT.anchoredPosition = new Vector2(0f, -370f);
+    qaRowRT.anchoredPosition = new Vector2(0f, 120f); // 120px from screen bottom, above footer
 
     // Helper — builds one pill button inside qaRow
     System.Action<string, Sprite, string, float, UnityEngine.Events.UnityAction> MakeQABtn =

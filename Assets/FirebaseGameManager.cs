@@ -1720,7 +1720,9 @@ void CreateLeaderboardUI()
     panelRect.anchorMin = Vector2.zero; panelRect.anchorMax = Vector2.one;
     panelRect.offsetMin = Vector2.zero; // full screen — no insets
     panelRect.offsetMax = Vector2.zero;
-    leaderboardPanel.AddComponent<Image>().color = Color.clear;   // invisible root
+    var lbRootImg = leaderboardPanel.AddComponent<Image>();
+    lbRootImg.color = Color.clear;
+    lbRootImg.raycastTarget = false; // transparent container — children handle their own input
 
     // ── Cyan glow border ─────────────────────────────────────────────────────
     GameObject borderGO = new GameObject("LB_Border");
@@ -1915,6 +1917,11 @@ public void ToggleSound()
             ? Resources.Load<Sprite>("SoundOn")
             : Resources.Load<Sprite>("SoundOff");
     }
+}
+
+public void SetSoundButtonVisible(bool visible)
+{
+    if (soundButtonObj != null) soundButtonObj.SetActive(visible);
 }
 
 void UpdateSoundIcon()
