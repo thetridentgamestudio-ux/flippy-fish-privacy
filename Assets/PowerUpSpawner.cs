@@ -208,11 +208,17 @@ public class PowerUpPickup : MonoBehaviour
         if (GameBootstrap.Instance == null ||
             GameBootstrap.Instance.CurrentState != GameBootstrap.GameState.Playing) return;
 
-        // Manual overlap check — bypasses Physics2D layer matrix and kinematic trigger limitations
-        Collider2D hit = Physics2D.OverlapCircle(transform.position, 1.0f, ~0);
-        if (hit == null) return;
-        if (hit.GetComponent<PlayerController>() == null &&
-            hit.GetComponentInParent<PlayerController>() == null) return;
+        // OverlapCircleAll so the power-up's own trigger collider (same position) never
+        // blocks detection — OverlapCircle returns only one result and often returns self.
+        Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, 1.0f, ~0);
+        bool playerFound = false;
+        foreach (var hit in hits)
+        {
+            if (hit.GetComponent<PlayerController>() != null ||
+                hit.GetComponentInParent<PlayerController>() != null)
+            { playerFound = true; break; }
+        }
+        if (!playerFound) return;
 
         _collected = true;
         Collect();
@@ -240,34 +246,9 @@ public class PowerUpPickup : MonoBehaviour
             if (def != null) particle.particleColor = def.color;
         }
 
-        // --- Floating active text (world space) ---
+        // --- Screen-space collection banner (replaces unreadably small world-space label) ---
         if (def != null)
-        {
-            GameObject floatGO = new GameObject("FloatingPowerUpLabel");
-            floatGO.transform.position = collectPos + Vector3.up * 1f;
-
-            // World-space canvas
-            Canvas wCanvas = floatGO.AddComponent<Canvas>();
-            wCanvas.renderMode = RenderMode.WorldSpace;
-            wCanvas.sortingLayerName = "Default";
-            wCanvas.sortingOrder = 20;
-            floatGO.transform.localScale = Vector3.one * 0.01f;
-
-            GameObject ftextGO = new GameObject("Text");
-            ftextGO.transform.SetParent(floatGO.transform, false);
-            TextMeshProUGUI ftxt = ftextGO.AddComponent<TextMeshProUGUI>();
-            ftxt.text = $"{def.name.ToUpper()} ACTIVE!";
-            ftxt.fontSize = 36;
-            ftxt.fontStyle = FontStyles.Bold;
-            ftxt.color = def.color;
-            ftxt.alignment = TextAlignmentOptions.Center;
-            RectTransform fRT = ftextGO.GetComponent<RectTransform>();
-            fRT.sizeDelta = new Vector2(400f, 60f);
-            fRT.anchoredPosition = Vector2.zero;
-
-            var floater = floatGO.AddComponent<FloatingLabel>();
-            floater.textComponent = ftxt;
-        }
+            PowerUpHUD.ShowCollectionBanner(def.name.ToUpper(), def.color);
 
         Destroy(gameObject);
     }

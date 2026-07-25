@@ -38,14 +38,14 @@ public class PowerUpHUD : MonoBehaviour
         canvasGO.AddComponent<UnityEngine.UI.GraphicRaycaster>();
         Object.DontDestroyOnLoad(canvasGO);
 
-        // HUD root: bottom-centre, above nav bar
+        // HUD root: top-centre, below score area — eyes follow the fish at top of screen
         GameObject go = new GameObject("PowerUpHUD");
         go.transform.SetParent(canvasGO.transform, false);
         var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin        = new Vector2(0.5f, 0f);
-        rt.anchorMax        = new Vector2(0.5f, 0f);
-        rt.pivot            = new Vector2(0.5f, 0f);
-        rt.anchoredPosition = new Vector2(0f, 360f);
+        rt.anchorMin        = new Vector2(0.5f, 1f);
+        rt.anchorMax        = new Vector2(0.5f, 1f);
+        rt.pivot            = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(0f, -220f);
         rt.sizeDelta        = new Vector2(400f, 120f);
 
         // Horizontal layout group so cards auto-arrange with gap
@@ -254,5 +254,93 @@ public class PowerUpHUD : MonoBehaviour
             case PowerUpManager.PowerUp.PowerUpType.SpeedBoost: return "powerup_speedboost";
             default: return null;
         }
+    }
+
+    // ── Collection banner ────────────────────────────────────────────────────
+    // Shown immediately on pickup — large, centred, screen-space, fades in 1.5s.
+    // Lives on the same overlay canvas (sortingOrder 99) so it's always visible.
+    // Safe to call even if HUD isn't initialised yet (guard at top).
+    public static void ShowCollectionBanner(string powerUpName, Color accentColor)
+    {
+        if (instance == null) return;
+
+        // Find the overlay canvas this HUD lives in
+        Canvas overlayCanvas = instance.GetComponentInParent<Canvas>();
+        if (overlayCanvas == null) return;
+
+        // Kill any existing banner so rapid re-collects don't stack
+        Transform old = overlayCanvas.transform.Find("CollectionBanner");
+        if (old != null) Destroy(old.gameObject);
+
+        // Banner root — full-width, vertically centred at 55% up the screen
+        GameObject bannerGO = new GameObject("CollectionBanner");
+        bannerGO.transform.SetParent(overlayCanvas.transform, false);
+
+        var bannerRT = bannerGO.AddComponent<RectTransform>();
+        bannerRT.anchorMin        = new Vector2(0f, 0.5f);
+        bannerRT.anchorMax        = new Vector2(1f, 0.5f);
+        bannerRT.pivot            = new Vector2(0.5f, 0.5f);
+        bannerRT.sizeDelta        = new Vector2(0f, 140f);
+        bannerRT.anchoredPosition = new Vector2(0f, 160f); // slightly above centre so fish stays visible
+
+        // Semi-transparent dark pill behind text
+        var bg = bannerGO.AddComponent<UnityEngine.UI.Image>();
+        bg.color = new Color(0f, 0f, 0f, 0.55f);
+
+        // Power-up name — large, bold, accent colour
+        GameObject textGO = new GameObject("BannerText");
+        textGO.transform.SetParent(bannerGO.transform, false);
+        var txt = textGO.AddComponent<TextMeshProUGUI>();
+        txt.text      = $"{powerUpName}  ACTIVATED!";
+        txt.fontSize  = 72;
+        txt.fontStyle = FontStyles.Bold;
+        txt.color     = accentColor;
+        txt.alignment = TextAlignmentOptions.Center;
+        txt.outlineColor = Color.black;
+        txt.outlineWidth = 0.25f;
+        var txtRT = txt.rectTransform;
+        txtRT.anchorMin = Vector2.zero;
+        txtRT.anchorMax = Vector2.one;
+        txtRT.offsetMin = txtRT.offsetMax = Vector2.zero;
+
+        // Fader component destroys banner after 1.5s
+        var fader = bannerGO.AddComponent<CollectionBannerFader>();
+        fader.textComponent = txt;
+        fader.bgComponent   = bg;
+    }
+}
+
+/// <summary>Fades and removes the collection banner over 1.5 seconds.</summary>
+public class CollectionBannerFader : MonoBehaviour
+{
+    public TextMeshProUGUI textComponent;
+    public UnityEngine.UI.Image bgComponent;
+
+    const float kHoldTime = 0.6f;  // stay opaque
+    const float kFadeTime = 0.9f;  // then fade out
+    float _elapsed;
+    Color _startText;
+    Color _startBg;
+
+    void Start()
+    {
+        _startText = textComponent != null ? textComponent.color : Color.white;
+        _startBg   = bgComponent   != null ? bgComponent.color   : Color.clear;
+    }
+
+    void Update()
+    {
+        _elapsed += Time.unscaledDeltaTime; // unscaled so SlowTime power-up doesn't delay the banner
+        if (_elapsed < kHoldTime) return;
+
+        float t = (_elapsed - kHoldTime) / kFadeTime;
+        float alpha = Mathf.Clamp01(1f - t);
+
+        if (textComponent != null)
+            textComponent.color = new Color(_startText.r, _startText.g, _startText.b, alpha);
+        if (bgComponent != null)
+            bgComponent.color = new Color(_startBg.r, _startBg.g, _startBg.b, _startBg.a * alpha);
+
+        if (t >= 1f) Destroy(gameObject);
     }
 }
