@@ -3296,6 +3296,97 @@ void CreateGameOverButtons()
         rsRT.offsetMin = rsRT.offsetMax = Vector2.zero;
     }
 
+    // ── QUICK-ACCESS ROW (Quests + Skins) ────────────────────────────────────
+    // Two pill buttons below Restart so the player can browse skins or check
+    // quests without closing the app. Death card stays visible behind both panels.
+    // Nothing here touches game state — both APIs are purely additive show/hide.
+    Sprite qaQuestSpr = Resources.Load<Sprite>("btn_quest");
+    Sprite qaSkinSpr  = Resources.Load<Sprite>("icon_skins");
+
+    GameObject qaRow = new GameObject("QuickAccessRow");
+    qaRow.transform.SetParent(card.transform, false);
+    var qaRowRT = qaRow.AddComponent<RectTransform>();
+    qaRowRT.anchorMin = new Vector2(0.5f, 0.5f);
+    qaRowRT.anchorMax = new Vector2(0.5f, 0.5f);
+    qaRowRT.pivot     = new Vector2(0.5f, 0.5f);
+    qaRowRT.sizeDelta = new Vector2(cardW - 60f, 90f);
+    qaRowRT.anchoredPosition = new Vector2(0f, -370f);
+
+    // Helper — builds one pill button inside qaRow
+    System.Action<string, Sprite, string, float, UnityEngine.Events.UnityAction> MakeQABtn =
+        (goName, iconSpr, labelStr, xPos, onClickAction) =>
+    {
+        GameObject pillGO = new GameObject(goName);
+        pillGO.transform.SetParent(qaRow.transform, false);
+        var pillImg = pillGO.AddComponent<Image>();
+        pillImg.sprite = MakeRoundedRectRuntime(210, 90, 45);
+        pillImg.type   = Image.Type.Simple;
+        pillImg.color  = new Color(0.08f, 0.22f, 0.48f, 0.92f);
+        var pillRT = pillGO.GetComponent<RectTransform>();
+        pillRT.anchorMin = new Vector2(0.5f, 0.5f);
+        pillRT.anchorMax = new Vector2(0.5f, 0.5f);
+        pillRT.pivot     = new Vector2(0.5f, 0.5f);
+        pillRT.sizeDelta = new Vector2(210f, 90f);
+        pillRT.anchoredPosition = new Vector2(xPos, 0f);
+
+        // Icon (left half of pill)
+        if (iconSpr != null)
+        {
+            GameObject icoGO = new GameObject("Icon");
+            icoGO.transform.SetParent(pillGO.transform, false);
+            var icoImg = icoGO.AddComponent<Image>();
+            icoImg.sprite = iconSpr;
+            icoImg.preserveAspect = true;
+            icoImg.color = Color.white;
+            var icoRT = icoGO.GetComponent<RectTransform>();
+            icoRT.anchorMin = new Vector2(0f, 0.1f);
+            icoRT.anchorMax = new Vector2(0.45f, 0.9f);
+            icoRT.offsetMin = new Vector2(10f, 0f);
+            icoRT.offsetMax = Vector2.zero;
+        }
+
+        // Label (right half of pill)
+        GameObject lblGO = new GameObject("Label");
+        lblGO.transform.SetParent(pillGO.transform, false);
+        var lbl = lblGO.AddComponent<TextMeshProUGUI>();
+        lbl.text      = labelStr;
+        lbl.font      = tmpFont;
+        lbl.fontSize  = 26;
+        lbl.fontStyle = FontStyles.Bold;
+        lbl.color     = Color.white;
+        lbl.alignment = iconSpr != null
+            ? TextAlignmentOptions.MidlineLeft
+            : TextAlignmentOptions.Center;
+        var lblRT = lbl.GetComponent<RectTransform>();
+        // If no icon, label fills entire pill; otherwise occupies right 55%
+        if (iconSpr != null)
+        {
+            lblRT.anchorMin = new Vector2(0.45f, 0f);
+            lblRT.anchorMax = new Vector2(1f,    1f);
+            lblRT.offsetMin = new Vector2(4f, 0f);
+            lblRT.offsetMax = Vector2.zero;
+        }
+        else
+        {
+            lblRT.anchorMin = Vector2.zero;
+            lblRT.anchorMax = Vector2.one;
+            lblRT.offsetMin = lblRT.offsetMax = Vector2.zero;
+        }
+
+        var btn = pillGO.AddComponent<Button>();
+        btn.targetGraphic = pillImg;
+        ColorBlock cb = btn.colors;
+        cb.normalColor      = Color.white;
+        cb.highlightedColor = new Color(0.55f, 0.80f, 1.00f);
+        cb.pressedColor     = new Color(0.04f, 0.12f, 0.30f);
+        btn.colors = cb;
+        btn.onClick.AddListener(onClickAction);
+    };
+
+    float halfGap = (cardW - 60f) / 4f; // 115 — centres two 210-wide pills in a 460-wide row
+    MakeQABtn("QuestsShortcut", qaQuestSpr, "QUESTS", -halfGap, () => ShowDailyQuests());
+    MakeQABtn("SkinsShortcut",  qaSkinSpr,  "SKINS",  +halfGap, () => SkinSelectUI.Show());
+
     // ── Footer bar (skin hint + streak, anchored to bottom of screen) ─────
     GameObject footer = new GameObject("Footer");
     footer.transform.SetParent(panel.transform, false);
